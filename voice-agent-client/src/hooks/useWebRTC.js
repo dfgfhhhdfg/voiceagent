@@ -34,15 +34,23 @@ export const useWebRTC = () => {
 
   /* =========================================================
      SOCKET CONNECTION
+     — token passed in handshake.auth so server.js can identify
+       the logged-in patient and skip asking for name/email
   ========================================================= */
   useEffect(() => {
     const socketUrl = import.meta.env.VITE_SOCKET_URL || 'http://localhost:5000';
+
+    // ── CHANGE 1: read JWT from localStorage and pass in auth ──
+    const token = localStorage.getItem('token');
 
     socketRef.current = io(socketUrl, {
       transports: ['websocket', 'polling'],
       reconnection: true,
       reconnectionAttempts: 5,
       reconnectionDelay: 1000,
+      auth: {
+        token: token ? `Bearer ${token}` : null,   // ← server reads this
+      },
     });
 
     socketRef.current.on('connect', () => {
@@ -57,7 +65,7 @@ export const useWebRTC = () => {
     });
 
     socketRef.current.on('transcript', (data) => {
-      if (isSpeakingRef.current) return; // Client-side gate
+      if (isSpeakingRef.current) return;
       setTranscript(data.text);
       setIsListening(!data.isFinal);
     });
@@ -85,8 +93,6 @@ export const useWebRTC = () => {
 
   /* =========================================================
      SET SPEAKING STATE
-     Updates both the ref (for sync closures) and state (for UI),
-     AND notifies the server so it gates audio on its side too.
   ========================================================= */
   const setSpeaking = useCallback((speaking) => {
     isSpeakingRef.current = speaking;
@@ -94,10 +100,8 @@ export const useWebRTC = () => {
     socketRef.current?.emit('sarah-speaking', speaking);
 
     if (speaking) {
-      // Disable mic track immediately — belt AND suspenders with server gate
       streamRef.current?.getAudioTracks().forEach(t => { t.enabled = false; });
     } else {
-      // Re-enable mic (unless manually muted)
       if (!isMutedRef.current) {
         streamRef.current?.getAudioTracks().forEach(t => { t.enabled = true; });
       }
@@ -112,10 +116,7 @@ export const useWebRTC = () => {
   const speakText = useCallback((text) => {
     if (!text?.trim()) return;
     try {
-      // Cancel any current speech first
       window.speechSynthesis.cancel();
-
-      // Gate immediately — BEFORE the utterance starts
       setSpeaking(true);
       console.log('🔇 Mic gated — Sarah speaking');
 
@@ -134,7 +135,6 @@ export const useWebRTC = () => {
       if (female) utterance.voice = female;
 
       const done = () => {
-        // Wait 800ms after speech ends for reverb/echo to die down
         setTimeout(() => {
           setSpeaking(false);
           console.log('🎙️ Mic re-enabled');
@@ -191,9 +191,7 @@ export const useWebRTC = () => {
 
       processorRef.current = audioContextRef.current.createScriptProcessor(4096, 1, 1);
       processorRef.current.onaudioprocess = (event) => {
-        // Triple gate: socket connected + call active + Sarah not speaking
         if (!socketRef.current?.connected || isSpeakingRef.current) return;
-
         const float32 = event.inputBuffer.getChannelData(0);
         const int16   = new Int16Array(float32.length);
         for (let i = 0; i < float32.length; i++) {
@@ -207,14 +205,21 @@ export const useWebRTC = () => {
       processorRef.current.connect(audioContextRef.current.destination);
 
       if (!socketRef.current?.connected) throw new Error('Socket not connected.');
-      socketRef.current.emit('start-voice-session', { sampleRate: actualRate });
+
+      // ── CHANGE 2: also send token at session-start as fallback ──
+      // Handles the edge case where the socket connected before login
+      const token = localStorage.getItem('token');
+      socketRef.current.emit('start-voice-session', {
+        sampleRate: actualRate,
+        authToken:  token ? `Bearer ${token}` : null,  // ← server uses this if handshake token was missing
+      });
 
       setIsConnected(true);
       console.log('🎙️ Voice session active @ LINEAR16', actualRate, 'Hz');
 
     } catch (err) {
       console.error('startCall error:', err);
-      if (err.name === 'NotAllowedError')  setError('Microphone access denied.');
+      if (err.name === 'NotAllowedError')    setError('Microphone access denied.');
       else if (err.name === 'NotFoundError') setError('No microphone found.');
       else setError(err.message || 'Failed to start call.');
       stopCall();
@@ -253,7 +258,7 @@ export const useWebRTC = () => {
   ========================================================= */
   const toggleMute = useCallback(() => {
     if (!streamRef.current) return;
-    if (!isMuted && isSpeakingRef.current) return; // Don't unmute during TTS
+    if (!isMuted && isSpeakingRef.current) return;
     const willMute = !isMuted;
     streamRef.current.getAudioTracks().forEach(t => { t.enabled = !willMute; });
     setIsMuted(willMute);
