@@ -36,6 +36,7 @@ const io = socketIo(server, {
 });
 
 connectDB();
+console.log("after");
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -52,7 +53,6 @@ app.get('/health', (req, res) => {
     socketConnections: io.engine.clientsCount,
     services: {
       deepgram: process.env.DEEPGRAM_API_KEY ? 'configured' : 'missing',
-      gemini:   process.env.GEMINI_API_KEY   ? 'configured' : 'missing',
       mongodb:  mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
     },
   });
@@ -61,31 +61,20 @@ app.get('/health', (req, res) => {
 /* ===============================
    JWT HELPER FOR SOCKETS
 ================================ */
-
-/**
- * Decodes JWT from socket handshake auth token and loads the user from DB.
- * Returns { name, email, phone, role } or null if token missing/invalid.
- */
 async function resolvePatientFromSocket(socket) {
   try {
-    // Client sends token via: socket = io(URL, { auth: { token: 'Bearer xxx' } })
     const raw = socket.handshake.auth?.token || socket.handshake.headers?.authorization;
     if (!raw) return null;
-
     const token   = raw.replace(/^Bearer\s+/i, '').trim();
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-
     let user;
     if (decoded.role === 'doctor') {
       user = await Doctor.findById(decoded.id).select('-password');
     } else {
       user = await Patient.findById(decoded.id).select('-password');
     }
-
     if (!user) return null;
-
     console.log(`🔐 Authenticated socket user: ${user.name} <${user.email}> [${decoded.role}]`);
-
     return {
       name:  user.name  || null,
       email: user.email || null,
@@ -93,7 +82,6 @@ async function resolvePatientFromSocket(socket) {
       role:  decoded.role,
     };
   } catch (err) {
-    // Invalid / expired token — treat as guest, don't crash
     console.warn(`⚠️  Socket JWT decode failed: ${err.message}`);
     return null;
   }
@@ -109,24 +97,20 @@ const RECONNECT_MAX_ATTEMPTS  = 5;
 const isPermanentError = (message = '') => {
   const msg = message.toLowerCase();
   return (
-    msg.includes('400') ||
-    msg.includes('401') ||
-    msg.includes('403') ||
-    msg.includes('invalid api key') ||
-    msg.includes('unauthorized')
+    msg.includes('400') || msg.includes('401') || msg.includes('403') ||
+    msg.includes('invalid api key') || msg.includes('unauthorized')
   );
 };
 
 /* ===============================
    SOCKET / VOICE SYSTEM
 ================================ */
+console.log("srever ");
+
 io.on('connection', async (socket) => {
   console.log(`✅ Client connected: ${socket.id}`);
 
-  // ── Resolve logged-in user from JWT immediately on connect ──
-  // patientContext is passed to Sarah so she already knows name + email
-  let patientContext = await resolvePatientFromSocket(socket);
-
+  let patientContext     = await resolvePatientFromSocket(socket);
   let conversationId     = null;
   let deepgramConnection = null;
   let isDeepgramOpen     = false;
@@ -135,25 +119,36 @@ io.on('connection', async (socket) => {
   let sessionSampleRate  = 16000;
   let audioQueue         = [];
   let readyCheckInterval = null;
-  let keepAliveInterval  = null;
   let reconnectAttempts  = 0;
   let reconnectTimer     = null;
 
-  // Personalise greeting if user is logged in
+  // ── FIX 1: keepAlive runs for the ENTIRE call, not just while Sarah speaks.
+  // Deepgram 1011 fires when NO data arrives for ~10s — this happens during
+  // TTS playback. Sending KeepAlive every 8s prevents it unconditionally.
+  let keepAliveInterval  = null;
+
+  const startKeepAlive = () => {
+    if (keepAliveInterval) return; // already running
+    keepAliveInterval = setInterval(() => {
+      if (deepgramConnection && isDeepgramOpen) {
+        sttService.sendKeepAlive(deepgramConnection);
+      }
+    }, 8000);
+  };
+
+  const stopKeepAlive = () => {
+    if (keepAliveInterval) { clearInterval(keepAliveInterval); keepAliveInterval = null; }
+  };
+
+  // Emit personalised greeting immediately on connect
   const greeting = patientContext?.name
     ? `Hello ${patientContext.name}! Welcome back to SmileCare Dental. I'm Sarah. How can I help you today?`
     : `Hello! Welcome to SmileCare Dental. I'm Sarah, your virtual assistant. How can I help you today?`;
-
-  socket.emit('assistant-response', {
-    text:      greeting,
-    isFinal:   true,
-    timestamp: new Date(),
-  });
+  socket.emit('assistant-response', { text: greeting, isFinal: true, timestamp: new Date() });
 
   /* ----------------------------
      Helpers
   ---------------------------- */
-
   const toBuffer = (data) => {
     if (Buffer.isBuffer(data))       return data;
     if (data instanceof ArrayBuffer) return Buffer.from(data);
@@ -168,14 +163,15 @@ io.on('connection', async (socket) => {
     audioQueue = [];
   };
 
-  const clearIntervals = () => {
+  const clearTimers = () => {
     if (readyCheckInterval) { clearInterval(readyCheckInterval); readyCheckInterval = null; }
-    if (keepAliveInterval)  { clearInterval(keepAliveInterval);  keepAliveInterval  = null; }
     if (reconnectTimer)     { clearTimeout(reconnectTimer);      reconnectTimer     = null; }
+    // NOTE: keepAlive is NOT cleared here — it stays alive for the whole call
   };
 
   const closeDeepgram = () => {
-    clearIntervals();
+    clearTimers();
+    stopKeepAlive(); // only stop keepAlive when the session fully ends
     isDeepgramOpen = false;
     audioQueue     = [];
     if (deepgramConnection) {
@@ -187,9 +183,8 @@ io.on('connection', async (socket) => {
   /* ----------------------------
      Deepgram Connection
   ---------------------------- */
-
   const openDeepgramConnection = () => {
-    clearIntervals();
+    clearTimers();
     if (!isCallActive) return;
 
     if (!process.env.DEEPGRAM_API_KEY) {
@@ -211,21 +206,20 @@ io.on('connection', async (socket) => {
 
       /* onTranscript */
       async (transcriptData) => {
-        if (isSarahSpeaking) return;
-
+        // FIX 2: Don't silently swallow transcripts while Sarah speaks.
+        // Just skip sending to AI — still reset reconnect counter.
         reconnectAttempts = 0;
         socket.emit('transcript', transcriptData);
 
+        if (isSarahSpeaking) return; // gate AI only, not reconnect counter
         if (!transcriptData.isFinal || !transcriptData.text.trim()) return;
 
         try {
           socket.emit('typing', true);
-
-          // Pass patientContext so Sarah knows who she's talking to
           const response = await voiceAgentService.processUserInput(
             transcriptData.text,
             conversationId,
-            patientContext        // ← KEY CHANGE
+            patientContext
           );
 
           if (!response.text || response.suppressed) {
@@ -244,7 +238,6 @@ io.on('connection', async (socket) => {
             isFinal:        true,
             timestamp:      new Date(),
           });
-
           console.log(`🤖 Sarah: ${response.text}`);
 
         } catch (err) {
@@ -272,7 +265,13 @@ io.on('connection', async (socket) => {
         isDeepgramOpen     = false;
         deepgramConnection = null;
 
+        // FIX 3: On reconnect, keepAlive keeps running so the NEW connection
+        // also stays alive immediately after it opens. No gap.
+
         if (!isCallActive) return;
+
+        // code 1000 = clean close (stop-voice-session) — don't reconnect
+        if (code === 1000) return;
 
         reconnectAttempts++;
         if (reconnectAttempts > RECONNECT_MAX_ATTEMPTS) {
@@ -294,7 +293,7 @@ io.on('connection', async (socket) => {
       }
     );
 
-    /* Wait for ready */
+    /* Wait for ready then start keepAlive */
     let elapsed = 0;
     readyCheckInterval = setInterval(() => {
       elapsed += 50;
@@ -304,6 +303,7 @@ io.on('connection', async (socket) => {
         clearInterval(readyCheckInterval);
         readyCheckInterval = null;
         flushQueue();
+        startKeepAlive(); // FIX 1: start unconditional keepAlive on open
         socket.emit('session-started', { status: 'ready', sampleRate: sessionSampleRate });
         console.log(`✅ Deepgram ready (${elapsed}ms)`);
       }
@@ -318,15 +318,12 @@ io.on('connection', async (socket) => {
   /* ----------------------------
      Start Voice Session
   ---------------------------- */
-
   socket.on('start-voice-session', async (options = {}) => {
     sessionSampleRate = options.sampleRate || 16000;
     isCallActive      = true;
     isSarahSpeaking   = false;
     reconnectAttempts = 0;
 
-    // Allow token to be sent at session-start too (fallback for clients
-    // that connect anonymously then authenticate before starting voice)
     if (!patientContext && options.authToken) {
       try {
         const token   = options.authToken.replace(/^Bearer\s+/i, '').trim();
@@ -350,12 +347,31 @@ io.on('connection', async (socket) => {
 
     console.log(`🎤 Voice session started${patientContext ? ` for ${patientContext.name}` : ' (guest)'}`);
     openDeepgramConnection();
+
+    // FIX 4: Don't re-emit greeting on start-voice-session — it was already
+    // sent on socket connect. Sending it twice makes Sarah speak twice.
+  });
+
+  /* ----------------------------
+     Patient Details & Location
+  ---------------------------- */
+  socket.on('patient-details', ({ name, email }) => {
+    patientContext = patientContext
+      ? { ...patientContext, name, email }
+      : { name, email };
+    console.log(`👤 Patient details updated: ${name}, ${email}`);
+  });
+
+  socket.on('patient-location', ({ lat, lng }) => {
+    patientContext = patientContext
+      ? { ...patientContext, lat, lng }
+      : { lat, lng };
+    console.log(`📍 Patient location updated: ${lat}, ${lng}`);
   });
 
   /* ----------------------------
      Audio Streaming
   ---------------------------- */
-
   socket.on('audio-chunk', (rawChunk) => {
     if (!isCallActive || isSarahSpeaking) return;
     const buffer = toBuffer(rawChunk);
@@ -374,38 +390,34 @@ io.on('connection', async (socket) => {
 
   /* ----------------------------
      Sarah Speaking Gate
+     FIX 1: keepAlive now runs for the ENTIRE call.
+     sarah-speaking only controls the mic gate and audio queue.
   ---------------------------- */
-
   socket.on('sarah-speaking', (speaking) => {
     isSarahSpeaking = speaking;
     if (speaking) {
       console.log('🔇 Sarah speaking - mic gate closed');
-      audioQueue = [];
-      keepAliveInterval = setInterval(() => {
-        if (deepgramConnection && isDeepgramOpen) sttService.sendKeepAlive(deepgramConnection);
-      }, 8000);
+      audioQueue = []; // discard any mic audio buffered before gate closed
     } else {
       console.log('🎙️ Sarah finished speaking');
-      if (keepAliveInterval) { clearInterval(keepAliveInterval); keepAliveInterval = null; }
     }
+    // keepAlive intentionally NOT touched here — it runs throughout the call
   });
 
   /* ----------------------------
      Stop Voice Session
   ---------------------------- */
-
   socket.on('stop-voice-session', () => {
     console.log('🛑 Voice session stopped');
     isCallActive      = false;
     isSarahSpeaking   = false;
     reconnectAttempts = 0;
-    closeDeepgram();
+    closeDeepgram(); // this calls stopKeepAlive()
   });
 
   /* ----------------------------
      Disconnect
   ---------------------------- */
-
   socket.on('disconnect', (reason) => {
     console.log(`❌ Client disconnected: ${reason}`);
     isCallActive      = false;
@@ -419,7 +431,6 @@ io.on('connection', async (socket) => {
 /* ===============================
    ERROR HANDLING
 ================================ */
-
 app.use((err, req, res, next) => {
   console.error(err);
   res.status(500).json({ success: false, error: 'Server error' });
@@ -432,7 +443,6 @@ app.use((req, res) =>
 /* ===============================
    START SERVER
 ================================ */
-
 const PORT = process.env.PORT || 5000;
 
 server.listen(PORT, () => {
@@ -442,7 +452,6 @@ server.listen(PORT, () => {
 ╠══════════════════════════════════╣
 ║  http://localhost:${PORT}         ║
 ║  Deepgram: ${process.env.DEEPGRAM_API_KEY ? '✅' : '❌ MISSING KEY'}            ║
-║  Gemini:   ${process.env.GEMINI_API_KEY   ? '✅' : '❌ MISSING KEY'}            ║
 ╚══════════════════════════════════╝
 `);
 });

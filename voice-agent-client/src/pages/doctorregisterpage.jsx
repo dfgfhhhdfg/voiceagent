@@ -1,499 +1,560 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   FaTooth, FaEnvelope, FaLock, FaEye, FaEyeSlash,
   FaUser, FaPhone, FaMapMarkerAlt, FaArrowLeft,
   FaCheckCircle, FaUserMd, FaStethoscope, FaGraduationCap,
-  FaClock, FaCalendarAlt, FaPlus, FaTimes, FaRupeeSign,
+  FaClock, FaCalendarAlt, FaPlus, FaTimes, FaSearch,
+  FaLocationArrow,
 } from 'react-icons/fa';
 
 const API = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 
+/* ── Design tokens ─────────────────────────────────────────────────── */
+const T = {
+  bg:      '#080C14',
+  surface: '#0D1320',
+  card:    '#111827',
+  border:  '#1E2A3A',
+  accent:  '#00D4FF',
+  emerald: '#00E5A0',
+  text:    '#E8EDF5',
+  muted:   '#5A6A82',
+  danger:  '#FF4D6A',
+  gold:    '#C9A84C',
+};
+
 const SPECIALIZATIONS = [
-  'General Dentist', 'Orthodontist', 'Periodontist',
-  'Endodontist', 'Oral Surgeon', 'Pediatric Dentist',
-  'Cosmetic Dentist', 'Prosthodontist', 'Oral Pathologist',
+  'General Dentist','Orthodontist','Periodontist','Endodontist',
+  'Oral Surgeon','Pediatric Dentist','Cosmetic Dentist','Prosthodontist','Oral Pathologist',
 ];
+const ALL_DAYS     = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
+const DEFAULT_SLOTS = ['09:00','10:00','11:00','13:00','14:00','15:00','16:00','17:00'];
 
-const ALL_DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
-const DEFAULT_SLOTS = ['09:00', '10:00', '11:00', '13:00', '14:00', '15:00', '16:00', '17:00'];
+/* ── Leaflet map picker (loaded lazily) ────────────────────────────── */
+function MapPicker({ value, onChange }) {
+  const mapRef     = useRef(null);
+  const markerRef  = useRef(null);
+  const leafletRef = useRef(null);
+  const [search, setSearch]   = useState('');
+  const [searching, setSearching] = useState(false);
+  const [locating, setLocating]   = useState(false);
+  const DEFAULT = { lat: 12.2958, lng: 76.6394 }; // Mysuru
 
-// ── Brand tokens (matches new homepage) ───────────────────────────────────
-const NAVY = '#0B1F3A';
-const GOLD = '#C9A84C';
+  useEffect(() => {
+    if (mapRef.current._leaflet_id) return; // already initialised
+
+    // Inject Leaflet CSS
+    if (!document.getElementById('leaflet-css')) {
+      const link = document.createElement('link');
+      link.id   = 'leaflet-css';
+      link.rel  = 'stylesheet';
+      link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+      document.head.appendChild(link);
+    }
+
+    // Load Leaflet JS dynamically
+    const script = document.createElement('script');
+    script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+    script.onload = () => initMap(window.L);
+    document.head.appendChild(script);
+
+    return () => { /* map cleanup handled by React unmount */ };
+  }, []);
+
+  const initMap = (L) => {
+    leafletRef.current = L;
+    const startLat = value?.lat || DEFAULT.lat;
+    const startLng = value?.lng || DEFAULT.lng;
+
+    const map = L.map(mapRef.current, { zoomControl: true }).setView([startLat, startLng], 14);
+
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+      attribution: '© OpenStreetMap, © CartoDB',
+      maxZoom: 19,
+    }).addTo(map);
+
+    // Custom cyan pin icon
+    const icon = L.divIcon({
+      html: `<div style="width:28px;height:28px;background:linear-gradient(135deg,${T.accent},#0066AA);border-radius:50% 50% 50% 0;transform:rotate(-45deg);border:2px solid white;box-shadow:0 4px 16px ${T.accent}60"></div>`,
+      iconSize: [28, 28], iconAnchor: [14, 28], popupAnchor: [0, -28],
+      className: '',
+    });
+
+    const marker = L.marker([startLat, startLng], { icon, draggable: true }).addTo(map);
+    markerRef.current = marker;
+
+    const onMove = async (lat, lng) => {
+      const addr = await reverseGeocode(lat, lng);
+      onChange({ lat, lng, address: addr });
+    };
+
+    marker.on('dragend', e => {
+      const { lat, lng } = e.target.getLatLng();
+      onMove(lat, lng);
+    });
+
+    map.on('click', e => {
+      const { lat, lng } = e.latlng;
+      marker.setLatLng([lat, lng]);
+      onMove(lat, lng);
+    });
+
+    // Init with current value
+    if (value?.lat) onMove(value.lat, value.lng);
+  };
+
+  const reverseGeocode = async (lat, lng) => {
+    try {
+      const r = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`);
+      const d = await r.json();
+      return d.display_name || `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+    } catch { return `${lat.toFixed(5)}, ${lng.toFixed(5)}`; }
+  };
+
+  const searchLocation = async () => {
+    if (!search.trim() || !leafletRef.current) return;
+    setSearching(true);
+    try {
+      const r = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(search)}&format=json&limit=1`);
+      const d = await r.json();
+      if (d[0]) {
+        const lat = parseFloat(d[0].lat);
+        const lng = parseFloat(d[0].lon);
+        const L   = leafletRef.current;
+        const map = mapRef.current._leaflet_map || mapRef.current._leaflet_id && L.map(mapRef.current);
+        // fly the map view
+        mapRef.current._leaflet_map?.setView([lat, lng], 15);
+        markerRef.current?.setLatLng([lat, lng]);
+        const addr = d[0].display_name;
+        onChange({ lat, lng, address: addr });
+      }
+    } catch { /* silent */ }
+    finally { setSearching(false); }
+  };
+
+  const useMyLocation = () => {
+    if (!navigator.geolocation) return;
+    setLocating(true);
+    navigator.geolocation.getCurrentPosition(async pos => {
+      const { latitude: lat, longitude: lng } = pos.coords;
+      mapRef.current._leaflet_map?.setView([lat, lng], 15);
+      markerRef.current?.setLatLng([lat, lng]);
+      const addr = await reverseGeocode(lat, lng);
+      onChange({ lat, lng, address: addr });
+      setLocating(false);
+    }, () => setLocating(false));
+  };
+
+  // Store map instance on the DOM node for access
+  useEffect(() => {
+    const el = mapRef.current;
+    const orig = el;
+    return () => { if (orig?._leaflet_id && window.L) { try { window.L.map(orig).remove(); } catch {} } };
+  }, []);
+
+  return (
+    <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+      {/* Search bar */}
+      <div style={{ display:'flex', gap:8 }}>
+        <div style={{ flex:1, position:'relative' }}>
+          <FaSearch style={{ position:'absolute', left:12, top:'50%', transform:'translateY(-50%)', color:T.muted, fontSize:12 }} />
+          <input
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && searchLocation()}
+            placeholder="Search clinic address…"
+            style={{ width:'100%', paddingLeft:34, paddingRight:12, paddingTop:10, paddingBottom:10, background:T.surface, border:`1px solid ${T.border}`, borderRadius:10, color:T.text, fontSize:13, outline:'none', fontFamily:'inherit', boxSizing:'border-box' }}
+          />
+        </div>
+        <button type="button" onClick={searchLocation} disabled={searching}
+          style={{ padding:'10px 16px', background:`${T.accent}15`, border:`1px solid ${T.accent}30`, borderRadius:10, color:T.accent, fontSize:12, fontWeight:600, cursor:'pointer' }}>
+          {searching ? '…' : 'Search'}
+        </button>
+        <button type="button" onClick={useMyLocation} disabled={locating}
+          style={{ padding:'10px 12px', background:`${T.emerald}10`, border:`1px solid ${T.emerald}30`, borderRadius:10, color:T.emerald, fontSize:13, cursor:'pointer' }}
+          title="Use my current location">
+          <FaLocationArrow />
+        </button>
+      </div>
+
+      {/* Map */}
+      <div ref={mapRef} style={{ width:'100%', height:280, borderRadius:14, border:`1px solid ${T.border}`, overflow:'hidden', position:'relative', zIndex:0 }} />
+
+      {/* Address display */}
+      {value?.address && (
+        <div style={{ display:'flex', alignItems:'flex-start', gap:8, background:`${T.accent}08`, border:`1px solid ${T.accent}20`, borderRadius:10, padding:'10px 14px' }}>
+          <FaMapMarkerAlt style={{ color:T.accent, fontSize:12, marginTop:2, flexShrink:0 }} />
+          <p style={{ color:T.text, fontSize:12.5, lineHeight:1.5 }}>{value.address}</p>
+        </div>
+      )}
+      <p style={{ color:T.muted, fontSize:11 }}>
+        🗺️ Click the map or drag the pin to set your exact clinic location.
+      </p>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   MAIN COMPONENT
+══════════════════════════════════════════════════════════════════════ */
+const css = `
+  @import url('https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=Space+Grotesk:wght@400;500;600&display=swap');
+  .dr-input {
+    width:100%; padding:11px 14px 11px 38px;
+    background:${T.surface}; border:1px solid ${T.border}; border-radius:12px;
+    color:${T.text}; font-family:'Space Grotesk',sans-serif; font-size:14px;
+    outline:none; box-sizing:border-box; transition:border-color .2s;
+  }
+  .dr-input:focus { border-color:${T.accent}60; }
+  .dr-input::placeholder { color:${T.muted}; }
+  .dr-input-wrap { position:relative; }
+  .dr-input-icon { position:absolute; left:12px; top:50%; transform:translateY(-50%); color:${T.muted}; font-size:13px; pointer-events:none; }
+  .dr-label { display:block; font-size:12px; font-weight:600; color:${T.muted}; margin-bottom:6px; text-transform:uppercase; letter-spacing:.06em; }
+  .dr-day-btn { padding:8px 14px; border-radius:10px; font-size:12px; font-weight:600; cursor:pointer; transition:all .2s; border:1px solid; font-family:'Space Grotesk',sans-serif; }
+  .dr-slot-btn { padding:7px 13px; border-radius:9px; font-size:12px; font-weight:600; cursor:pointer; border:1px solid; font-family:'Space Grotesk',sans-serif; transition:all .2s; }
+  select.dr-input { padding-left:38px; appearance:none; cursor:pointer; }
+  textarea.dr-input { padding-left:14px; resize:none; }
+`;
 
 export default function DoctorRegister({ onSuccess, onSwitchToLogin }) {
   const [step, setStep] = useState(1);
-
   const [form, setForm] = useState({
-    // Step 1 — Basic
-    name:     '',
-    email:    '',
-    phone:    '',
-    password: '',
-    confirm:  '',
-    address:  '',
-    // Step 2 — Professional
-    specialization:  '',
-    qualification:   '',
-    experience:      '',
-    consultationFee: '500',
-    bio:             '',
-    // Step 3 — Availability
-    availableDays:  ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'],
+    name:'', email:'', phone:'', password:'', confirm:'',
+    specialization:'', qualification:'', experience:'', consultationFee:'500', bio:'',
+    availableDays: ['Monday','Tuesday','Wednesday','Thursday','Friday'],
     availableSlots: [...DEFAULT_SLOTS],
-    customSlot:     '',
+    customSlot:'',
+    // Location from map
+    location: null, // { lat, lng, address }
   });
-
   const [showPass,    setShowPass]    = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
   const [loading,     setLoading]     = useState(false);
   const [error,       setError]       = useState('');
   const [success,     setSuccess]     = useState(false);
 
-  // ── Handlers ──────────────────────────────────────────────────────────
   const handle = e => setForm(f => ({ ...f, [e.target.name]: e.target.value }));
-
-  const toggleDay = day => setForm(f => ({
-    ...f,
-    availableDays: f.availableDays.includes(day)
-      ? f.availableDays.filter(d => d !== day)
-      : [...f.availableDays, day],
-  }));
-
-  const toggleSlot = slot => setForm(f => ({
-    ...f,
-    availableSlots: f.availableSlots.includes(slot)
-      ? f.availableSlots.filter(s => s !== slot)
-      : [...f.availableSlots, slot].sort(),
-  }));
-
+  const toggleDay  = d  => setForm(f => ({ ...f, availableDays:  f.availableDays.includes(d)  ? f.availableDays.filter(x=>x!==d)  : [...f.availableDays, d]  }));
+  const toggleSlot = s  => setForm(f => ({ ...f, availableSlots: f.availableSlots.includes(s) ? f.availableSlots.filter(x=>x!==s) : [...f.availableSlots, s].sort() }));
   const addCustomSlot = () => {
     const s = form.customSlot.trim();
     if (!s || form.availableSlots.includes(s)) return;
-    setForm(f => ({ ...f, availableSlots: [...f.availableSlots, s].sort(), customSlot: '' }));
+    setForm(f => ({ ...f, availableSlots: [...f.availableSlots, s].sort(), customSlot:'' }));
   };
 
-  // ── Validation ────────────────────────────────────────────────────────
-  const validateStep1 = () => {
-    if (!form.name.trim())              return 'Full name is required.';
-    if (!form.email.trim())             return 'Email is required.';
-    if (!form.password)                 return 'Password is required.';
-    if (form.password.length < 6)       return 'Password must be at least 6 characters.';
-    if (form.password !== form.confirm) return 'Passwords do not match.';
-    return null;
+  const pwStrength = pw => {
+    if (!pw) return 0;
+    let s = 0;
+    if (pw.length >= 6)           s++;
+    if (pw.length >= 10)          s++;
+    if (/[A-Z]/.test(pw))         s++;
+    if (/[0-9]/.test(pw))         s++;
+    if (/[^A-Za-z0-9]/.test(pw))  s++;
+    return s;
   };
+  const strength      = pwStrength(form.password);
+  const strengthLabel = ['','Weak','Fair','Good','Strong','Very Strong'][strength];
+  const strengthColor = ['','#FF4D6A','#F59E0B','#3B82F6',T.emerald,'#059669'][strength];
 
-  const validateStep2 = () => {
-    if (!form.specialization)           return 'Please select a specialization.';
-    if (!form.qualification.trim())     return 'Qualification is required.';
-    if (!form.experience || isNaN(form.experience)) return 'Valid years of experience is required.';
-    if (!form.consultationFee || isNaN(form.consultationFee) || Number(form.consultationFee) < 0)
-      return 'Please enter a valid consultation fee.';
+  const validateStep = n => {
+    if (n === 1) {
+      if (!form.name.trim())              return 'Full name is required.';
+      if (!form.email.trim())             return 'Email is required.';
+      if (!form.password)                 return 'Password is required.';
+      if (form.password.length < 6)       return 'Password must be at least 6 characters.';
+      if (form.password !== form.confirm) return 'Passwords do not match.';
+    }
+    if (n === 2) {
+      if (!form.specialization)           return 'Please select a specialization.';
+      if (!form.qualification.trim())     return 'Qualification is required.';
+      if (!form.experience || isNaN(form.experience)) return 'Years of experience is required.';
+    }
+    if (n === 3) {
+      if (!form.location?.lat)            return 'Please pin your clinic location on the map.';
+    }
     return null;
   };
 
   const nextStep = () => {
     setError('');
-    if (step === 1) { const e = validateStep1(); if (e) { setError(e); return; } }
-    if (step === 2) { const e = validateStep2(); if (e) { setError(e); return; } }
+    const e = validateStep(step);
+    if (e) { setError(e); return; }
     setStep(s => s + 1);
   };
 
-  // ── Submit ────────────────────────────────────────────────────────────
   const handleSubmit = async () => {
     if (form.availableDays.length === 0) { setError('Please select at least one available day.'); return; }
-    setLoading(true);
-    setError('');
+    setLoading(true); setError('');
     try {
+      const payload = {
+        name: form.name, email: form.email, password: form.password,
+        phone: form.phone,
+        address: form.location?.address || '',
+        specialization: form.specialization, qualification: form.qualification,
+        experience: Number(form.experience), consultationFee: Number(form.consultationFee),
+        bio: form.bio,
+        availableDays: form.availableDays, availableSlots: form.availableSlots,
+        // GeoJSON location for DB
+        location: form.location?.lat ? {
+          type: { type: 'Point', coordinates: [form.location.lng, form.location.lat] },
+          address:   form.location.address || '',
+          placeName: form.location.address?.split(',')[0] || '',
+        } : undefined,
+      };
+
       const res  = await fetch(`${API}/api/doctors/register`, {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name:            form.name,
-          email:           form.email,
-          password:        form.password,
-          phone:           form.phone,
-          address:         form.address,
-          specialization:  form.specialization,
-          qualification:   form.qualification,
-          experience:      Number(form.experience),
-          consultationFee: Number(form.consultationFee),
-          bio:             form.bio,
-          availableDays:   form.availableDays,
-          availableSlots:  form.availableSlots,
-        }),
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
       });
       const data = await res.json();
-      if (!data.success) { setError(data.error || 'Registration failed. Please try again.'); return; }
+      if (!data.success) { setError(data.error || 'Registration failed.'); return; }
 
-      // Save auth token and log doctor in immediately
       if (data.token) {
         localStorage.setItem('token', data.token);
         localStorage.setItem('user', JSON.stringify({ ...data.doctor, role: 'doctor' }));
       }
-
       setSuccess(true);
       setTimeout(() => { if (onSuccess) onSuccess({ ...data.doctor, role: 'doctor' }); }, 2000);
-    } catch {
-      setError('Could not connect to server. Please try again.');
-    } finally {
-      setLoading(false);
-    }
+    } catch { setError('Could not connect to server. Please try again.'); }
+    finally { setLoading(false); }
   };
 
-  // ── Password strength ─────────────────────────────────────────────────
-  const pwStrength = pw => {
-    if (!pw) return 0;
-    let s = 0;
-    if (pw.length >= 6)          s++;
-    if (pw.length >= 10)         s++;
-    if (/[A-Z]/.test(pw))        s++;
-    if (/[0-9]/.test(pw))        s++;
-    if (/[^A-Za-z0-9]/.test(pw)) s++;
-    return s;
-  };
-  const strength     = pwStrength(form.password);
-  const strengthLabel = ['', 'Weak', 'Fair', 'Good', 'Strong', 'Very Strong'][strength];
-  const strengthColor = ['', '#EF4444', '#F59E0B', '#3B82F6', '#10B981', '#059669'][strength];
-
-  // ── Success screen ────────────────────────────────────────────────────
-  if (success) {
-    return (
-      <div className="min-h-screen flex items-center justify-center p-4"
-        style={{ background: `linear-gradient(135deg, #F0FDF4, #ECFDF5)`, fontFamily: "'DM Sans', sans-serif" }}>
-        <motion.div initial={{ scale: 0.85, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
-          style={{ background: 'white', borderRadius: 28, boxShadow: '0 20px 60px rgba(11,31,58,0.12)', padding: '56px 48px', textAlign: 'center', maxWidth: 420, width: '100%' }}>
-          <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ delay: 0.2, type: 'spring', stiffness: 200 }}
-            style={{ width: 96, height: 96, background: `linear-gradient(135deg, #059669, #0D9488)`, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 24px', boxShadow: '0 12px 32px rgba(5,150,105,0.35)' }}>
-            <FaUserMd style={{ color: 'white', fontSize: 40 }} />
-          </motion.div>
-          <h2 style={{ color: NAVY, fontSize: 28, fontWeight: 700, marginBottom: 8 }}>Welcome to SmileCare!</h2>
-          <p style={{ color: '#6B7280', fontSize: 15, lineHeight: 1.7, marginBottom: 6 }}>
-            Your doctor account has been created successfully.
-          </p>
-          <p style={{ color: '#9CA3AF', fontSize: 13 }}>Logging you in…</p>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 20 }}>
-            {[0, 150, 300].map(d => (
-              <span key={d} style={{ width: 8, height: 8, background: '#059669', borderRadius: '50%' }}
-                className="animate-bounce" />
-            ))}
-          </div>
+  /* ── Success screen ──────────────────────────────────────────────── */
+  if (success) return (
+    <div style={{ minHeight:'100vh', display:'flex', alignItems:'center', justifyContent:'center', background:T.bg, fontFamily:"'Space Grotesk',sans-serif" }}>
+      <motion.div initial={{scale:.85,opacity:0}} animate={{scale:1,opacity:1}}
+        style={{ background:T.card, border:`1px solid ${T.border}`, borderRadius:24, padding:'56px 48px', textAlign:'center', maxWidth:400, width:'90%' }}>
+        <motion.div initial={{scale:0}} animate={{scale:1}} transition={{delay:.2,type:'spring',stiffness:200}}
+          style={{ width:80, height:80, background:`linear-gradient(135deg,${T.emerald},#059669)`, borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', margin:'0 auto 24px', boxShadow:`0 12px 32px ${T.emerald}40` }}>
+          <FaUserMd style={{ color:'white', fontSize:32 }} />
         </motion.div>
-      </div>
-    );
-  }
+        <h2 style={{ fontFamily:"'Syne',sans-serif", color:T.text, fontSize:26, fontWeight:800, marginBottom:8 }}>Welcome to SmileCare!</h2>
+        <p style={{ color:T.muted, fontSize:14, lineHeight:1.7 }}>Your doctor account has been created successfully.</p>
+        <p style={{ color:T.muted, fontSize:12, marginTop:8 }}>Logging you in…</p>
+      </motion.div>
+    </div>
+  );
 
-  const stepLabels = ['Basic Info', 'Professional', 'Availability'];
-  const stepSubLabels = ['Name, email & password', 'Qualifications & fee', 'Days & time slots'];
+  const stepLabels    = ['Basic Info','Professional','Clinic Location','Availability'];
+  const stepSubLabels = ['Name, email & password','Qualifications & fee','Pin on map','Days & time slots'];
 
   return (
-    <div style={{ minHeight: '100vh', background: `linear-gradient(135deg, #F0FDF4, #F7FFF9)`, fontFamily: "'DM Sans', sans-serif", display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-      <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+    <div style={{ minHeight:'100vh', background:T.bg, fontFamily:"'Space Grotesk',sans-serif", display:'flex', alignItems:'center', justifyContent:'center', padding:16 }}>
+      <style>{css}</style>
 
-      <div style={{ width: '100%', maxWidth: 960, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', borderRadius: 28, overflow: 'hidden', boxShadow: '0 24px 80px rgba(11,31,58,0.14)' }}>
+      <div style={{ width:'100%', maxWidth:980, display:'grid', gridTemplateColumns:'300px 1fr', borderRadius:24, overflow:'hidden', boxShadow:`0 24px 80px rgba(0,0,0,.6), 0 0 0 1px ${T.border}` }}>
 
-        {/* ── LEFT PANEL ──────────────────────────────────────────────── */}
-        <motion.div initial={{ opacity: 0, x: -40 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.5 }}
-          style={{ background: `linear-gradient(155deg, #065F46 0%, #059669 60%, #0D9488 100%)`, padding: '44px 40px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', minHeight: 560 }}>
-
-          {/* Logo */}
+        {/* ── LEFT PANEL ─────────────────────────────────────────── */}
+        <motion.div initial={{opacity:0,x:-30}} animate={{opacity:1,x:0}}
+          style={{ background:`linear-gradient(155deg, #051A10 0%, #0A2A18 60%, #0D3020 100%)`, padding:'40px 32px', display:'flex', flexDirection:'column', justifyContent:'space-between' }}>
           <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 40 }}>
-              <div style={{ width: 44, height: 44, background: 'rgba(255,255,255,0.2)', borderRadius: 14, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <FaTooth style={{ color: 'white', fontSize: 22 }} />
+            <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:36 }}>
+              <div style={{ width:38, height:38, background:`${T.emerald}20`, border:`1px solid ${T.emerald}30`, borderRadius:12, display:'flex', alignItems:'center', justifyContent:'center' }}>
+                <FaTooth style={{ color:T.emerald, fontSize:17 }} />
               </div>
               <div>
-                <p style={{ color: 'white', fontSize: 18, fontWeight: 700, lineHeight: 1 }}>SmileCare Dental</p>
-                <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: 11, marginTop: 3 }}>Doctor Registration</p>
+                <p style={{ fontFamily:"'Syne',sans-serif", color:T.text, fontSize:16, fontWeight:800, lineHeight:1 }}>SmileCare</p>
+                <p style={{ color:T.emerald, fontSize:9, letterSpacing:'.18em', fontWeight:600, marginTop:2 }}>DOCTOR PORTAL</p>
               </div>
             </div>
 
-            <h2 style={{ color: 'white', fontSize: 30, fontWeight: 700, lineHeight: 1.2, marginBottom: 12 }}>
-              Join our<br />
-              <span style={{ color: 'rgba(255,255,255,0.75)' }}>specialist network</span>
+            <h2 style={{ fontFamily:"'Syne',sans-serif", color:T.text, fontSize:24, fontWeight:800, lineHeight:1.15, marginBottom:10 }}>
+              Join our<br /><span style={{ color:T.emerald }}>specialist network</span>
             </h2>
-            <p style={{ color: 'rgba(255,255,255,0.65)', fontSize: 14, lineHeight: 1.75, marginBottom: 36 }}>
-              Create your profile, set your availability and let Sarah automatically fill your schedule with qualified patients.
+            <p style={{ color:T.muted, fontSize:13, lineHeight:1.8, marginBottom:32 }}>
+              Create your profile, pin your clinic, set availability and let Sarah fill your schedule automatically.
             </p>
 
-            {/* Step indicators */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            {/* Steps */}
+            <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
               {stepLabels.map((label, i) => (
-                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 14, opacity: step === i + 1 ? 1 : step > i + 1 ? 0.7 : 0.4, transition: 'opacity 0.3s' }}>
+                <div key={i} style={{ display:'flex', alignItems:'center', gap:12, opacity: step===i+1 ? 1 : step>i+1 ? 0.65 : 0.35, transition:'opacity .3s' }}>
                   <div style={{
-                    width: 36, height: 36, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    fontSize: 13, fontWeight: 700, border: '2px solid',
-                    borderColor: step > i + 1 ? 'white' : step === i + 1 ? 'white' : 'rgba(255,255,255,0.4)',
-                    background: step > i + 1 ? 'white' : step === i + 1 ? 'rgba(255,255,255,0.2)' : 'transparent',
-                    color: step > i + 1 ? '#059669' : 'white',
-                    flexShrink: 0,
+                    width:32, height:32, borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center',
+                    fontSize:12, fontWeight:700, flexShrink:0,
+                    border:`1.5px solid ${step>i+1 ? T.emerald : step===i+1 ? T.emerald : T.border}`,
+                    background: step>i+1 ? `${T.emerald}20` : step===i+1 ? `${T.emerald}10` : 'transparent',
+                    color: step>i+1 ? T.emerald : step===i+1 ? T.emerald : T.muted,
                   }}>
-                    {step > i + 1 ? <FaCheckCircle /> : i + 1}
+                    {step>i+1 ? <FaCheckCircle style={{fontSize:11}}/> : i+1}
                   </div>
                   <div>
-                    <p style={{ color: 'white', fontWeight: 600, fontSize: 14, lineHeight: 1 }}>{label}</p>
-                    <p style={{ color: 'rgba(255,255,255,0.55)', fontSize: 12, marginTop: 3 }}>{stepSubLabels[i]}</p>
+                    <p style={{ color:T.text, fontWeight:600, fontSize:13, lineHeight:1 }}>{label}</p>
+                    <p style={{ color:T.muted, fontSize:11, marginTop:3 }}>{stepSubLabels[i]}</p>
                   </div>
                 </div>
               ))}
             </div>
           </div>
 
-          {/* Back to login */}
-          <div style={{ marginTop: 36, background: 'rgba(255,255,255,0.1)', borderRadius: 16, padding: '16px 20px' }}>
-            <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: 12, marginBottom: 8 }}>Already have a doctor account?</p>
+          <div style={{ marginTop:32, background:`${T.emerald}08`, border:`1px solid ${T.emerald}15`, borderRadius:14, padding:'14px 18px' }}>
+            <p style={{ color:T.muted, fontSize:11, marginBottom:8 }}>Already have a doctor account?</p>
             <button onClick={onSwitchToLogin}
-              style={{ color: 'white', fontWeight: 600, fontSize: 14, display: 'flex', alignItems: 'center', gap: 6, background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
-              className="hover:opacity-80 transition">
-              <FaArrowLeft style={{ fontSize: 11 }} /> Sign in to Doctor Portal
+              style={{ color:T.emerald, fontWeight:600, fontSize:13, display:'flex', alignItems:'center', gap:6, background:'none', border:'none', cursor:'pointer', padding:0 }}>
+              <FaArrowLeft style={{fontSize:10}}/> Sign in to Doctor Portal
             </button>
           </div>
         </motion.div>
 
-        {/* ── RIGHT PANEL ─────────────────────────────────────────────── */}
-        <motion.div initial={{ opacity: 0, x: 40 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.5 }}
-          style={{ background: 'white', padding: '44px 40px', overflowY: 'auto', maxHeight: '90vh' }}>
+        {/* ── RIGHT PANEL ────────────────────────────────────────── */}
+        <motion.div initial={{opacity:0,x:30}} animate={{opacity:1,x:0}}
+          style={{ background:T.surface, padding:'36px 36px', overflowY:'auto', maxHeight:'92vh' }}>
 
-          {/* Progress bar */}
-          <div style={{ marginBottom: 32 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-              <h3 style={{ color: NAVY, fontSize: 22, fontWeight: 700, margin: 0 }}>
-                {['Basic Information', 'Professional Details', 'Availability'][step - 1]}
+          {/* Progress */}
+          <div style={{ marginBottom:28 }}>
+            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:10 }}>
+              <h3 style={{ fontFamily:"'Syne',sans-serif", color:T.text, fontSize:20, fontWeight:800 }}>
+                {['Basic Information','Professional Details','Clinic Location','Availability'][step-1]}
               </h3>
-              <span style={{ color: '#9CA3AF', fontSize: 13 }}>Step {step} / 3</span>
+              <span style={{ color:T.muted, fontSize:12 }}>Step {step} / 4</span>
             </div>
-            <div style={{ width: '100%', height: 6, background: '#F3F4F6', borderRadius: 10, overflow: 'hidden' }}>
-              <motion.div
-                animate={{ width: `${(step / 3) * 100}%` }}
-                transition={{ duration: 0.5 }}
-                style={{ height: '100%', background: 'linear-gradient(90deg, #059669, #0D9488)', borderRadius: 10 }} />
+            <div style={{ width:'100%', height:4, background:T.border, borderRadius:4, overflow:'hidden' }}>
+              <motion.div animate={{ width:`${(step/4)*100}%` }} transition={{ duration:.5 }}
+                style={{ height:'100%', background:`linear-gradient(90deg, ${T.emerald}, #059669)`, borderRadius:4 }} />
             </div>
           </div>
 
-          {/* Error banner */}
+          {/* Error */}
           <AnimatePresence>
             {error && (
-              <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }}
-                style={{ background: '#FEF2F2', border: '1px solid #FCA5A5', color: '#DC2626', fontSize: 13, borderRadius: 12, padding: '12px 16px', marginBottom: 20, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <motion.div initial={{opacity:0,y:-8}} animate={{opacity:1,y:0}} exit={{opacity:0,y:-8}}
+                style={{ background:`${T.danger}12`, border:`1px solid ${T.danger}30`, color:T.danger, fontSize:13, borderRadius:12, padding:'11px 15px', marginBottom:18 }}>
                 ⚠️ {error}
               </motion.div>
             )}
           </AnimatePresence>
 
-          {/* ── STEP 1: BASIC INFO ────────────────────────────────────── */}
+          {/* ── STEP 1: BASIC INFO ────────────────────────────────── */}
           {step === 1 && (
-            <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }}
-              style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
-
-              {/* Full Name */}
+            <motion.div initial={{opacity:0,x:16}} animate={{opacity:1,x:0}} style={{ display:'flex', flexDirection:'column', gap:16 }}>
+              {/* Name */}
               <div>
-                <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 6 }}>
-                  Full Name <span style={{ color: '#EF4444' }}>*</span>
-                </label>
-                <div style={{ position: 'relative' }}>
-                  <FaUser style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', color: '#9CA3AF', fontSize: 13 }} />
-                  <input type="text" name="name" required value={form.name} onChange={handle}
-                    placeholder="Dr. Jane Smith"
-                    style={{ width: '100%', paddingLeft: 40, paddingRight: 16, paddingTop: 12, paddingBottom: 12, border: '1.5px solid #E5E7EB', borderRadius: 12, fontSize: 14, color: NAVY, outline: 'none', boxSizing: 'border-box', fontFamily: 'inherit' }}
-                    onFocus={e => e.target.style.borderColor = '#059669'}
-                    onBlur={e => e.target.style.borderColor = '#E5E7EB'} />
+                <label className="dr-label">Full Name *</label>
+                <div className="dr-input-wrap">
+                  <FaUser className="dr-input-icon" />
+                  <input name="name" value={form.name} onChange={handle} placeholder="Dr. Jane Smith" className="dr-input" />
                 </div>
               </div>
-
               {/* Email */}
               <div>
-                <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 6 }}>
-                  Email Address <span style={{ color: '#EF4444' }}>*</span>
-                </label>
-                <div style={{ position: 'relative' }}>
-                  <FaEnvelope style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', color: '#9CA3AF', fontSize: 13 }} />
-                  <input type="email" name="email" required value={form.email} onChange={handle}
-                    placeholder="doctor@smilecaredental.com"
-                    style={{ width: '100%', paddingLeft: 40, paddingRight: 16, paddingTop: 12, paddingBottom: 12, border: '1.5px solid #E5E7EB', borderRadius: 12, fontSize: 14, color: NAVY, outline: 'none', boxSizing: 'border-box', fontFamily: 'inherit' }}
-                    onFocus={e => e.target.style.borderColor = '#059669'}
-                    onBlur={e => e.target.style.borderColor = '#E5E7EB'} />
+                <label className="dr-label">Email Address *</label>
+                <div className="dr-input-wrap">
+                  <FaEnvelope className="dr-input-icon" />
+                  <input type="email" name="email" value={form.email} onChange={handle} placeholder="doctor@clinic.com" className="dr-input" />
                 </div>
               </div>
-
-              {/* Phone + Address */}
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                <div>
-                  <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 6 }}>Phone</label>
-                  <div style={{ position: 'relative' }}>
-                    <FaPhone style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', color: '#9CA3AF', fontSize: 12 }} />
-                    <input type="tel" name="phone" value={form.phone} onChange={handle} placeholder="+91 9876543210"
-                      style={{ width: '100%', paddingLeft: 38, paddingRight: 12, paddingTop: 12, paddingBottom: 12, border: '1.5px solid #E5E7EB', borderRadius: 12, fontSize: 13, color: NAVY, outline: 'none', boxSizing: 'border-box', fontFamily: 'inherit' }}
-                      onFocus={e => e.target.style.borderColor = '#059669'}
-                      onBlur={e => e.target.style.borderColor = '#E5E7EB'} />
-                  </div>
-                </div>
-                <div>
-                  <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 6 }}>Address</label>
-                  <div style={{ position: 'relative' }}>
-                    <FaMapMarkerAlt style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', color: '#9CA3AF', fontSize: 12 }} />
-                    <input type="text" name="address" value={form.address} onChange={handle} placeholder="Suite 101"
-                      style={{ width: '100%', paddingLeft: 38, paddingRight: 12, paddingTop: 12, paddingBottom: 12, border: '1.5px solid #E5E7EB', borderRadius: 12, fontSize: 13, color: NAVY, outline: 'none', boxSizing: 'border-box', fontFamily: 'inherit' }}
-                      onFocus={e => e.target.style.borderColor = '#059669'}
-                      onBlur={e => e.target.style.borderColor = '#E5E7EB'} />
-                  </div>
+              {/* Phone */}
+              <div>
+                <label className="dr-label">Phone</label>
+                <div className="dr-input-wrap">
+                  <FaPhone className="dr-input-icon" style={{fontSize:11}} />
+                  <input type="tel" name="phone" value={form.phone} onChange={handle} placeholder="+91 9876543210" className="dr-input" />
                 </div>
               </div>
-
               {/* Password */}
               <div>
-                <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 6 }}>
-                  Password <span style={{ color: '#EF4444' }}>*</span>
-                </label>
-                <div style={{ position: 'relative' }}>
-                  <FaLock style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', color: '#9CA3AF', fontSize: 12 }} />
-                  <input type={showPass ? 'text' : 'password'} name="password" required value={form.password} onChange={handle}
-                    placeholder="Min. 6 characters"
-                    style={{ width: '100%', paddingLeft: 40, paddingRight: 44, paddingTop: 12, paddingBottom: 12, border: '1.5px solid #E5E7EB', borderRadius: 12, fontSize: 14, color: NAVY, outline: 'none', boxSizing: 'border-box', fontFamily: 'inherit' }}
-                    onFocus={e => e.target.style.borderColor = '#059669'}
-                    onBlur={e => e.target.style.borderColor = '#E5E7EB'} />
-                  <button type="button" onClick={() => setShowPass(s => !s)}
-                    style={{ position: 'absolute', right: 14, top: '50%', transform: 'translateY(-50%)', color: '#9CA3AF', background: 'none', border: 'none', cursor: 'pointer' }}>
-                    {showPass ? <FaEyeSlash /> : <FaEye />}
+                <label className="dr-label">Password *</label>
+                <div className="dr-input-wrap">
+                  <FaLock className="dr-input-icon" style={{fontSize:11}} />
+                  <input type={showPass?'text':'password'} name="password" value={form.password} onChange={handle} placeholder="Min. 6 characters"
+                    className="dr-input" style={{ paddingRight:40 }} />
+                  <button type="button" onClick={()=>setShowPass(s=>!s)}
+                    style={{ position:'absolute', right:12, top:'50%', transform:'translateY(-50%)', color:T.muted, background:'none', border:'none', cursor:'pointer' }}>
+                    {showPass ? <FaEyeSlash/> : <FaEye/>}
                   </button>
                 </div>
-                {/* Strength bar */}
                 {form.password && (
-                  <div style={{ marginTop: 8 }}>
-                    <div style={{ display: 'flex', gap: 4, marginBottom: 4 }}>
+                  <div style={{ marginTop:8 }}>
+                    <div style={{ display:'flex', gap:4, marginBottom:4 }}>
                       {[1,2,3,4,5].map(i => (
-                        <div key={i} style={{ flex: 1, height: 3, borderRadius: 4, background: i <= strength ? strengthColor : '#E5E7EB', transition: 'background 0.3s' }} />
+                        <div key={i} style={{ flex:1, height:3, borderRadius:4, background: i<=strength ? strengthColor : T.border, transition:'background .3s' }} />
                       ))}
                     </div>
-                    <p style={{ fontSize: 11, color: strengthColor, fontWeight: 600 }}>{strengthLabel}</p>
+                    <p style={{ fontSize:11, color:strengthColor, fontWeight:600 }}>{strengthLabel}</p>
                   </div>
                 )}
               </div>
-
-              {/* Confirm Password */}
+              {/* Confirm */}
               <div>
-                <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 6 }}>
-                  Confirm Password <span style={{ color: '#EF4444' }}>*</span>
-                </label>
-                <div style={{ position: 'relative' }}>
-                  <FaLock style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', color: '#9CA3AF', fontSize: 12 }} />
-                  <input type={showConfirm ? 'text' : 'password'} name="confirm" required value={form.confirm} onChange={handle}
-                    placeholder="Re-enter password"
-                    style={{ width: '100%', paddingLeft: 40, paddingRight: 76, paddingTop: 12, paddingBottom: 12, border: `1.5px solid ${form.confirm ? (form.password === form.confirm ? '#10B981' : '#EF4444') : '#E5E7EB'}`, borderRadius: 12, fontSize: 14, color: NAVY, outline: 'none', boxSizing: 'border-box', fontFamily: 'inherit' }}
-                    onFocus={e => {}} onBlur={e => {}} />
-                  <button type="button" onClick={() => setShowConfirm(s => !s)}
-                    style={{ position: 'absolute', right: 38, top: '50%', transform: 'translateY(-50%)', color: '#9CA3AF', background: 'none', border: 'none', cursor: 'pointer' }}>
-                    {showConfirm ? <FaEyeSlash /> : <FaEye />}
+                <label className="dr-label">Confirm Password *</label>
+                <div className="dr-input-wrap">
+                  <FaLock className="dr-input-icon" style={{fontSize:11}} />
+                  <input type={showConfirm?'text':'password'} name="confirm" value={form.confirm} onChange={handle}
+                    placeholder="Re-enter password" className="dr-input"
+                    style={{ paddingRight:70, borderColor: form.confirm ? (form.password===form.confirm ? T.emerald : T.danger) : T.border }} />
+                  <button type="button" onClick={()=>setShowConfirm(s=>!s)}
+                    style={{ position:'absolute', right:34, top:'50%', transform:'translateY(-50%)', color:T.muted, background:'none', border:'none', cursor:'pointer' }}>
+                    {showConfirm ? <FaEyeSlash/> : <FaEye/>}
                   </button>
-                  {form.confirm && form.password === form.confirm && (
-                    <FaCheckCircle style={{ position: 'absolute', right: 14, top: '50%', transform: 'translateY(-50%)', color: '#10B981' }} />
+                  {form.confirm && form.password===form.confirm && (
+                    <FaCheckCircle style={{ position:'absolute', right:12, top:'50%', transform:'translateY(-50%)', color:T.emerald }} />
                   )}
                 </div>
-                {form.confirm && form.password !== form.confirm && (
-                  <p style={{ color: '#EF4444', fontSize: 12, marginTop: 4 }}>⚠️ Passwords do not match</p>
+                {form.confirm && form.password!==form.confirm && (
+                  <p style={{ color:T.danger, fontSize:12, marginTop:4 }}>Passwords do not match</p>
                 )}
               </div>
             </motion.div>
           )}
 
-          {/* ── STEP 2: PROFESSIONAL ──────────────────────────────────── */}
+          {/* ── STEP 2: PROFESSIONAL ─────────────────────────────── */}
           {step === 2 && (
-            <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }}
-              style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
-
+            <motion.div initial={{opacity:0,x:16}} animate={{opacity:1,x:0}} style={{ display:'flex', flexDirection:'column', gap:16 }}>
               {/* Specialization */}
               <div>
-                <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 6 }}>
-                  Specialization <span style={{ color: '#EF4444' }}>*</span>
-                </label>
-                <div style={{ position: 'relative' }}>
-                  <FaStethoscope style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', color: '#9CA3AF', fontSize: 13, zIndex: 1 }} />
-                  <select name="specialization" required value={form.specialization} onChange={handle}
-                    style={{ width: '100%', paddingLeft: 40, paddingRight: 16, paddingTop: 12, paddingBottom: 12, border: '1.5px solid #E5E7EB', borderRadius: 12, fontSize: 14, color: form.specialization ? NAVY : '#9CA3AF', outline: 'none', background: 'white', appearance: 'none', boxSizing: 'border-box', fontFamily: 'inherit', cursor: 'pointer' }}
-                    onFocus={e => e.target.style.borderColor = '#059669'}
-                    onBlur={e => e.target.style.borderColor = '#E5E7EB'}>
+                <label className="dr-label">Specialization *</label>
+                <div className="dr-input-wrap">
+                  <FaStethoscope className="dr-input-icon" />
+                  <select name="specialization" value={form.specialization} onChange={handle} className="dr-input" style={{ color: form.specialization ? T.text : T.muted }}>
                     <option value="">Select specialization…</option>
                     {SPECIALIZATIONS.map(s => <option key={s} value={s}>{s}</option>)}
                   </select>
                 </div>
               </div>
-
               {/* Qualification */}
               <div>
-                <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 6 }}>
-                  Qualification <span style={{ color: '#EF4444' }}>*</span>
-                </label>
-                <div style={{ position: 'relative' }}>
-                  <FaGraduationCap style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', color: '#9CA3AF', fontSize: 13 }} />
-                  <input type="text" name="qualification" required value={form.qualification} onChange={handle}
-                    placeholder="e.g. BDS, MDS (Orthodontics)"
-                    style={{ width: '100%', paddingLeft: 40, paddingRight: 16, paddingTop: 12, paddingBottom: 12, border: '1.5px solid #E5E7EB', borderRadius: 12, fontSize: 14, color: NAVY, outline: 'none', boxSizing: 'border-box', fontFamily: 'inherit' }}
-                    onFocus={e => e.target.style.borderColor = '#059669'}
-                    onBlur={e => e.target.style.borderColor = '#E5E7EB'} />
+                <label className="dr-label">Qualification *</label>
+                <div className="dr-input-wrap">
+                  <FaGraduationCap className="dr-input-icon" />
+                  <input name="qualification" value={form.qualification} onChange={handle} placeholder="e.g. BDS, MDS (Orthodontics)" className="dr-input" />
                 </div>
               </div>
-
-              {/* Experience + Consultation Fee — side by side */}
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              {/* Experience + Fee */}
+              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
                 <div>
-                  <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 6 }}>
-                    Years of Experience <span style={{ color: '#EF4444' }}>*</span>
-                  </label>
-                  <div style={{ position: 'relative' }}>
-                    <FaClock style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', color: '#9CA3AF', fontSize: 12 }} />
-                    <input type="number" name="experience" required min="0" max="60" value={form.experience} onChange={handle}
-                      placeholder="e.g. 10"
-                      style={{ width: '100%', paddingLeft: 38, paddingRight: 12, paddingTop: 12, paddingBottom: 12, border: '1.5px solid #E5E7EB', borderRadius: 12, fontSize: 14, color: NAVY, outline: 'none', boxSizing: 'border-box', fontFamily: 'inherit' }}
-                      onFocus={e => e.target.style.borderColor = '#059669'}
-                      onBlur={e => e.target.style.borderColor = '#E5E7EB'} />
+                  <label className="dr-label">Years of Experience *</label>
+                  <div className="dr-input-wrap">
+                    <FaClock className="dr-input-icon" style={{fontSize:11}} />
+                    <input type="number" name="experience" value={form.experience} onChange={handle} min="0" max="60" placeholder="10" className="dr-input" />
                   </div>
                 </div>
-
-                {/* ── CONSULTATION FEE ── */}
                 <div>
-                  <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 6 }}>
-                    Consultation Fee (₹) <span style={{ color: '#EF4444' }}>*</span>
-                  </label>
-                  <div style={{ position: 'relative' }}>
-                    <span style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', color: '#9CA3AF', fontSize: 13, fontWeight: 700 }}>₹</span>
-                    <input type="number" name="consultationFee" required min="0" value={form.consultationFee} onChange={handle}
-                      placeholder="500"
-                      style={{ width: '100%', paddingLeft: 30, paddingRight: 12, paddingTop: 12, paddingBottom: 12, border: '1.5px solid #E5E7EB', borderRadius: 12, fontSize: 14, color: NAVY, outline: 'none', boxSizing: 'border-box', fontFamily: 'inherit' }}
-                      onFocus={e => e.target.style.borderColor = '#059669'}
-                      onBlur={e => e.target.style.borderColor = '#E5E7EB'} />
+                  <label className="dr-label">Consultation Fee (₹) *</label>
+                  <div className="dr-input-wrap">
+                    <span className="dr-input-icon" style={{ fontSize:13, fontWeight:700 }}>₹</span>
+                    <input type="number" name="consultationFee" value={form.consultationFee} onChange={handle} min="0" placeholder="500" className="dr-input" />
                   </div>
-                  <p style={{ color: '#9CA3AF', fontSize: 11, marginTop: 4 }}>Shown on appointment PDF</p>
                 </div>
               </div>
-
               {/* Bio */}
               <div>
-                <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 6 }}>
-                  Bio / About <span style={{ color: '#9CA3AF', fontWeight: 400 }}>(optional)</span>
-                </label>
-                <textarea name="bio" value={form.bio} onChange={handle} rows={4}
-                  placeholder="Brief description about your expertise, approach, or background…"
-                  style={{ width: '100%', padding: '12px 16px', border: '1.5px solid #E5E7EB', borderRadius: 12, fontSize: 14, color: NAVY, outline: 'none', resize: 'none', fontFamily: 'inherit', boxSizing: 'border-box' }}
-                  onFocus={e => e.target.style.borderColor = '#059669'}
-                  onBlur={e => e.target.style.borderColor = '#E5E7EB'} />
-                <p style={{ color: '#9CA3AF', fontSize: 11, marginTop: 4 }}>{form.bio.length}/300 characters</p>
+                <label className="dr-label">Bio / About <span style={{color:T.muted,fontWeight:400,textTransform:'none'}}>(optional)</span></label>
+                <textarea name="bio" value={form.bio} onChange={handle} rows={3} placeholder="Brief description of your expertise…" className="dr-input" style={{ paddingTop:11, paddingBottom:11 }} />
               </div>
-
-              {/* Live preview card */}
+              {/* Preview card */}
               {form.specialization && (
-                <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
-                  style={{ background: '#F0FDF4', border: '1px solid #A7F3D0', borderRadius: 14, padding: '16px 20px' }}>
-                  <p style={{ color: '#059669', fontSize: 11, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 10 }}>Preview Card</p>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-                    <div style={{ width: 52, height: 52, background: 'linear-gradient(135deg, #059669, #0D9488)', borderRadius: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontWeight: 800, fontSize: 20, flexShrink: 0 }}>
+                <motion.div initial={{opacity:0,y:8}} animate={{opacity:1,y:0}}
+                  style={{ background:`${T.emerald}08`, border:`1px solid ${T.emerald}20`, borderRadius:14, padding:'14px 18px' }}>
+                  <p style={{ color:T.emerald, fontSize:10, fontWeight:700, letterSpacing:'.1em', textTransform:'uppercase', marginBottom:10 }}>Preview Card</p>
+                  <div style={{ display:'flex', alignItems:'center', gap:12 }}>
+                    <div style={{ width:44, height:44, background:`linear-gradient(135deg,${T.emerald}30,${T.emerald}10)`, border:`1px solid ${T.emerald}20`, borderRadius:12, display:'flex', alignItems:'center', justifyContent:'center', color:T.emerald, fontWeight:800, fontSize:18 }}>
                       {form.name?.charAt(0).toUpperCase() || '?'}
                     </div>
                     <div>
-                      <p style={{ color: NAVY, fontWeight: 700, fontSize: 15 }}>{form.name || 'Doctor Name'}</p>
-                      <p style={{ color: '#059669', fontSize: 12, fontWeight: 600 }}>{form.specialization}</p>
-                      <p style={{ color: '#9CA3AF', fontSize: 12 }}>
-                        {form.qualification || 'Qualification'} · {form.experience || '0'} yrs · ₹{Number(form.consultationFee || 0).toLocaleString('en-IN')}
-                      </p>
+                      <p style={{ color:T.text, fontWeight:700, fontSize:14 }}>{form.name || 'Doctor Name'}</p>
+                      <p style={{ color:T.emerald, fontSize:12, fontWeight:600 }}>{form.specialization}</p>
+                      <p style={{ color:T.muted, fontSize:11 }}>{form.qualification} · {form.experience||0} yrs · ₹{Number(form.consultationFee||0).toLocaleString('en-IN')}</p>
                     </div>
                   </div>
                 </motion.div>
@@ -501,101 +562,90 @@ export default function DoctorRegister({ onSuccess, onSwitchToLogin }) {
             </motion.div>
           )}
 
-          {/* ── STEP 3: AVAILABILITY ──────────────────────────────────── */}
+          {/* ── STEP 3: CLINIC LOCATION MAP ──────────────────────── */}
           {step === 3 && (
-            <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }}
-              style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+            <motion.div initial={{opacity:0,x:16}} animate={{opacity:1,x:0}} style={{ display:'flex', flexDirection:'column', gap:16 }}>
+              <div style={{ background:`${T.accent}08`, border:`1px solid ${T.accent}20`, borderRadius:12, padding:'12px 16px' }}>
+                <p style={{ color:T.accent, fontSize:12, fontWeight:600, marginBottom:4 }}>📍 Pin Your Clinic Location</p>
+                <p style={{ color:T.muted, fontSize:12, lineHeight:1.6 }}>
+                  This location is used to help patients find the nearest doctor. Search for your address or drag the pin to the exact spot.
+                </p>
+              </div>
+              <MapPicker
+                value={form.location}
+                onChange={loc => setForm(f => ({ ...f, location: loc }))}
+              />
+            </motion.div>
+          )}
 
-              {/* Available Days */}
+          {/* ── STEP 4: AVAILABILITY ─────────────────────────────── */}
+          {step === 4 && (
+            <motion.div initial={{opacity:0,x:16}} animate={{opacity:1,x:0}} style={{ display:'flex', flexDirection:'column', gap:22 }}>
+              {/* Days */}
               <div>
-                <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 12 }}>
-                  <FaCalendarAlt style={{ color: '#059669' }} /> Available Days
+                <label className="dr-label" style={{ display:'flex', alignItems:'center', gap:6 }}>
+                  <FaCalendarAlt style={{ color:T.emerald }}/> Available Days
                 </label>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                <div style={{ display:'flex', flexWrap:'wrap', gap:8 }}>
                   {ALL_DAYS.map(day => (
-                    <button key={day} type="button" onClick={() => toggleDay(day)}
-                      style={{
-                        padding: '8px 16px', borderRadius: 10, fontSize: 13, fontWeight: 600, cursor: 'pointer', transition: 'all 0.2s', border: 'none',
-                        background: form.availableDays.includes(day) ? '#059669' : '#F3F4F6',
-                        color: form.availableDays.includes(day) ? 'white' : '#6B7280',
-                        boxShadow: form.availableDays.includes(day) ? '0 4px 12px rgba(5,150,105,0.3)' : 'none',
-                      }}>
-                      {day.slice(0, 3)}
+                    <button key={day} type="button" onClick={()=>toggleDay(day)} className="dr-day-btn"
+                      style={{ background: form.availableDays.includes(day) ? `${T.emerald}20` : 'transparent', borderColor: form.availableDays.includes(day) ? T.emerald : T.border, color: form.availableDays.includes(day) ? T.emerald : T.muted }}>
+                      {day.slice(0,3)}
                     </button>
                   ))}
                 </div>
-                {form.availableDays.length === 0 && (
-                  <p style={{ color: '#F59E0B', fontSize: 12, marginTop: 8 }}>⚠️ Please select at least one day</p>
-                )}
               </div>
 
-              {/* Time Slots */}
+              {/* Slots */}
               <div>
-                <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 12 }}>
-                  <FaClock style={{ color: '#059669' }} /> Available Time Slots
+                <label className="dr-label" style={{ display:'flex', alignItems:'center', gap:6 }}>
+                  <FaClock style={{ color:T.emerald }}/> Time Slots
                 </label>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
+                <div style={{ display:'flex', flexWrap:'wrap', gap:8, marginBottom:10 }}>
                   {DEFAULT_SLOTS.map(slot => (
-                    <button key={slot} type="button" onClick={() => toggleSlot(slot)}
-                      style={{
-                        padding: '8px 14px', borderRadius: 10, fontSize: 13, fontWeight: 600, cursor: 'pointer', transition: 'all 0.2s', border: 'none',
-                        background: form.availableSlots.includes(slot) ? '#059669' : '#F3F4F6',
-                        color: form.availableSlots.includes(slot) ? 'white' : '#6B7280',
-                        boxShadow: form.availableSlots.includes(slot) ? '0 4px 12px rgba(5,150,105,0.3)' : 'none',
-                      }}>
+                    <button key={slot} type="button" onClick={()=>toggleSlot(slot)} className="dr-slot-btn"
+                      style={{ background: form.availableSlots.includes(slot) ? `${T.emerald}20` : 'transparent', borderColor: form.availableSlots.includes(slot) ? T.emerald : T.border, color: form.availableSlots.includes(slot) ? T.emerald : T.muted }}>
                       {slot}
                     </button>
                   ))}
                 </div>
-
-                {/* Add custom slot */}
-                <div style={{ display: 'flex', gap: 8 }}>
-                  <input type="time" value={form.customSlot}
-                    onChange={e => setForm(f => ({ ...f, customSlot: e.target.value }))}
-                    style={{ flex: 1, padding: '10px 14px', border: '1.5px solid #E5E7EB', borderRadius: 10, fontSize: 13, color: NAVY, outline: 'none', fontFamily: 'inherit' }}
-                    onFocus={e => e.target.style.borderColor = '#059669'}
-                    onBlur={e => e.target.style.borderColor = '#E5E7EB'} />
+                <div style={{ display:'flex', gap:8 }}>
+                  <input type="time" value={form.customSlot} onChange={e=>setForm(f=>({...f,customSlot:e.target.value}))}
+                    style={{ flex:1, padding:'9px 12px', background:T.surface, border:`1px solid ${T.border}`, borderRadius:10, color:T.text, fontSize:13, outline:'none', fontFamily:'inherit' }} />
                   <button type="button" onClick={addCustomSlot}
-                    style={{ padding: '10px 18px', background: '#059669', color: 'white', borderRadius: 10, fontSize: 13, fontWeight: 600, cursor: 'pointer', border: 'none', display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <FaPlus style={{ fontSize: 11 }} /> Add
+                    style={{ padding:'9px 16px', background:`${T.emerald}15`, border:`1px solid ${T.emerald}30`, borderRadius:10, color:T.emerald, fontSize:12, fontWeight:700, cursor:'pointer', display:'flex', alignItems:'center', gap:5 }}>
+                    <FaPlus style={{fontSize:10}}/> Add
                   </button>
                 </div>
-
-                {/* Custom slots display */}
-                {form.availableSlots.filter(s => !DEFAULT_SLOTS.includes(s)).length > 0 && (
-                  <div style={{ marginTop: 10, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                    {form.availableSlots.filter(s => !DEFAULT_SLOTS.includes(s)).map(slot => (
-                      <span key={slot} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '5px 12px', background: '#ECFDF5', color: '#065F46', borderRadius: 8, fontSize: 12, fontWeight: 600 }}>
-                        {slot}
-                        <button type="button" onClick={() => toggleSlot(slot)}
-                          style={{ color: '#6B7280', background: 'none', border: 'none', cursor: 'pointer', lineHeight: 1 }}
-                          className="hover:text-red-500">
-                          <FaTimes style={{ fontSize: 10 }} />
+                {form.availableSlots.filter(s=>!DEFAULT_SLOTS.includes(s)).length > 0 && (
+                  <div style={{ marginTop:8, display:'flex', flexWrap:'wrap', gap:6 }}>
+                    {form.availableSlots.filter(s=>!DEFAULT_SLOTS.includes(s)).map(s => (
+                      <span key={s} style={{ display:'inline-flex', alignItems:'center', gap:5, padding:'4px 10px', background:`${T.emerald}10`, border:`1px solid ${T.emerald}20`, color:T.emerald, borderRadius:8, fontSize:11, fontWeight:600 }}>
+                        {s}
+                        <button type="button" onClick={()=>toggleSlot(s)} style={{ color:T.muted, background:'none', border:'none', cursor:'pointer', lineHeight:1 }}>
+                          <FaTimes style={{fontSize:9}}/>
                         </button>
                       </span>
                     ))}
                   </div>
                 )}
-                <p style={{ color: '#9CA3AF', fontSize: 12, marginTop: 8 }}>{form.availableSlots.length} slots selected</p>
               </div>
 
-              {/* Summary box */}
-              <div style={{ background: '#F0FDF4', border: '1px solid #A7F3D0', borderRadius: 14, padding: '20px 22px' }}>
-                <p style={{ color: '#065F46', fontWeight: 700, fontSize: 13, marginBottom: 12 }}>📋 Registration Summary</p>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 13, color: '#374151' }}>
+              {/* Summary */}
+              <div style={{ background:`${T.emerald}06`, border:`1px solid ${T.emerald}15`, borderRadius:14, padding:'18px 20px' }}>
+                <p style={{ color:T.emerald, fontWeight:700, fontSize:12, marginBottom:12, textTransform:'uppercase', letterSpacing:'.08em' }}>📋 Registration Summary</p>
+                <div style={{ display:'flex', flexDirection:'column', gap:5 }}>
                   {[
-                    ['Name',            form.name],
-                    ['Email',           form.email],
-                    ['Specialization',  form.specialization],
-                    ['Qualification',   form.qualification],
-                    ['Experience',      `${form.experience} years`],
-                    ['Consultation Fee',`₹${Number(form.consultationFee || 0).toLocaleString('en-IN')}`],
-                    ['Available Days',  form.availableDays.join(', ') || 'None selected'],
-                    ['Time Slots',      `${form.availableSlots.length} slots`],
-                  ].map(([l, v]) => (
-                    <div key={l} style={{ display: 'flex', gap: 8 }}>
-                      <span style={{ color: '#9CA3AF', minWidth: 130, fontSize: 12, fontWeight: 600 }}>{l}:</span>
-                      <span style={{ color: NAVY, fontWeight: 500, fontSize: 12 }}>{v}</span>
+                    ['Name',          form.name],
+                    ['Specialization',form.specialization],
+                    ['Experience',    `${form.experience} years`],
+                    ['Clinic',        form.location?.address?.substring(0,50) || 'Not set'],
+                    ['Days',          form.availableDays.join(', ')||'None'],
+                    ['Slots',         `${form.availableSlots.length} slots`],
+                  ].map(([l,v]) => (
+                    <div key={l} style={{ display:'flex', gap:8 }}>
+                      <span style={{ color:T.muted, minWidth:110, fontSize:11, fontWeight:600 }}>{l}:</span>
+                      <span style={{ color:T.text, fontSize:11 }}>{v}</span>
                     </div>
                   ))}
                 </div>
@@ -603,37 +653,32 @@ export default function DoctorRegister({ onSuccess, onSwitchToLogin }) {
             </motion.div>
           )}
 
-          {/* ── NAV BUTTONS ───────────────────────────────────────────── */}
-          <div style={{ display: 'flex', gap: 12, marginTop: 28 }}>
+          {/* ── NAV BUTTONS ──────────────────────────────────────── */}
+          <div style={{ display:'flex', gap:10, marginTop:24 }}>
             {step > 1 && (
-              <button type="button" onClick={() => { setError(''); setStep(s => s - 1); }}
-                style={{ flex: 1, border: '2px solid #E5E7EB', color: '#6B7280', padding: '13px 0', borderRadius: 14, fontWeight: 600, fontSize: 14, cursor: 'pointer', background: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, fontFamily: 'inherit', transition: 'all 0.2s' }}
-                onMouseEnter={e => { e.target.style.borderColor = '#059669'; e.target.style.color = '#059669'; }}
-                onMouseLeave={e => { e.target.style.borderColor = '#E5E7EB'; e.target.style.color = '#6B7280'; }}>
-                <FaArrowLeft style={{ fontSize: 12 }} /> Back
+              <button type="button" onClick={()=>{setError('');setStep(s=>s-1);}}
+                style={{ flex:1, border:`1px solid ${T.border}`, color:T.muted, padding:'12px 0', borderRadius:14, fontWeight:600, fontSize:14, cursor:'pointer', background:'none', display:'flex', alignItems:'center', justifyContent:'center', gap:8, fontFamily:'inherit', transition:'all .2s' }}
+                onMouseEnter={e=>{e.currentTarget.style.borderColor=T.accent;e.currentTarget.style.color=T.accent}}
+                onMouseLeave={e=>{e.currentTarget.style.borderColor=T.border;e.currentTarget.style.color=T.muted}}>
+                <FaArrowLeft style={{fontSize:11}}/> Back
               </button>
             )}
-
-            {step < 3 ? (
+            {step < 4 ? (
               <button type="button" onClick={nextStep}
-                style={{ flex: 1, background: 'linear-gradient(135deg, #059669, #0D9488)', color: 'white', padding: '13px 0', borderRadius: 14, fontWeight: 700, fontSize: 14, cursor: 'pointer', border: 'none', fontFamily: 'inherit', boxShadow: '0 4px 16px rgba(5,150,105,0.3)', transition: 'all 0.2s' }}>
+                style={{ flex:1, background:`linear-gradient(135deg,${T.emerald},#059669)`, color:T.bg, padding:'12px 0', borderRadius:14, fontWeight:700, fontSize:14, cursor:'pointer', border:'none', fontFamily:'inherit', boxShadow:`0 4px 16px ${T.emerald}30` }}>
                 Next Step →
               </button>
             ) : (
-              <button type="button" onClick={handleSubmit}
-                disabled={loading || form.availableDays.length === 0}
-                style={{ flex: 1, background: loading || form.availableDays.length === 0 ? '#9CA3AF' : 'linear-gradient(135deg, #059669, #0D9488)', color: 'white', padding: '13px 0', borderRadius: 14, fontWeight: 700, fontSize: 14, cursor: loading ? 'not-allowed' : 'pointer', border: 'none', fontFamily: 'inherit', boxShadow: loading ? 'none' : '0 4px 16px rgba(5,150,105,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, transition: 'all 0.2s' }}>
+              <button type="button" onClick={handleSubmit} disabled={loading||form.availableDays.length===0}
+                style={{ flex:1, background: loading||form.availableDays.length===0 ? T.muted : `linear-gradient(135deg,${T.emerald},#059669)`, color:T.bg, padding:'12px 0', borderRadius:14, fontWeight:700, fontSize:14, cursor: loading?'not-allowed':'pointer', border:'none', fontFamily:'inherit', display:'flex', alignItems:'center', justifyContent:'center', gap:8 }}>
                 {loading ? (
-                  <>
-                    <span style={{ width: 16, height: 16, border: '2px solid rgba(255,255,255,0.3)', borderTopColor: 'white', borderRadius: '50%', display: 'inline-block' }} className="animate-spin" />
-                    Creating Account…
-                  </>
+                  <><span style={{ width:16, height:16, border:`2px solid ${T.bg}40`, borderTopColor:T.bg, borderRadius:'50%' }} className="animate-spin" />Creating…</>
                 ) : '✅ Create Doctor Account'}
               </button>
             )}
           </div>
 
-          <p style={{ textAlign: 'center', color: '#9CA3AF', fontSize: 12, marginTop: 16 }}>
+          <p style={{ textAlign:'center', color:T.muted, fontSize:11, marginTop:14 }}>
             By registering you agree to SmileCare's terms of service.
           </p>
         </motion.div>

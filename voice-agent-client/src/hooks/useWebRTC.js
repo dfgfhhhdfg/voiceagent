@@ -42,6 +42,8 @@ export const useWebRTC = () => {
 
     // ── CHANGE 1: read JWT from localStorage and pass in auth ──
     const token = localStorage.getItem('token');
+    if (token) console.log('Token exists:', token.substring(0, 20) + '...');
+    
 
     socketRef.current = io(socketUrl, {
       transports: ['websocket', 'polling'],
@@ -213,6 +215,28 @@ export const useWebRTC = () => {
         sampleRate: actualRate,
         authToken:  token ? `Bearer ${token}` : null,  // ← server uses this if handshake token was missing
       });
+
+      // ─────────────────────────────────────────────────────────────────────────
+      // ADD THIS to useWebRTC.js (or wherever startCall is called in server.js)
+      // Pass patient's GPS coordinates through the socket so Sarah can use them.
+      // ─────────────────────────────────────────────────────────────────────────
+      if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(pos => {
+          socketRef.current.emit('patient-location', {
+            lat: pos.coords.latitude,
+            lng: pos.coords.longitude,
+          });
+        }, () => {/* permission denied — gracefully ignore */});
+      }
+
+      // Send patient details if available
+      const user = JSON.parse(localStorage.getItem('user') || '{}');
+      if (user.name && user.email) {
+        socketRef.current.emit('patient-details', {
+          name: user.name,
+          email: user.email,
+        });
+      }
 
       setIsConnected(true);
       console.log('🎙️ Voice session active @ LINEAR16', actualRate, 'Hz');
