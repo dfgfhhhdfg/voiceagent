@@ -205,15 +205,128 @@ const SPEC_COLORS = {
 const specStyle = (s) => SPEC_COLORS[s] || { bg: T.surface, text: T.muted };
 
 /* ══════════════════════════════════════════════════════════════════════
-   UPGRADED 3-D DENTAL HERO CANVAS
-   New additions over original:
-     1. Central rotating crystal tooth (large LatheGeometry + inner wireframe + pulsing glow)
-     2. Upgraded double helix — denser rungs, dual-color strands, smoother curves
-     3. Three-layer star field — white / pink / gold at different Z depths & speeds
-     4. Aurora sine wave mesh — 8 undulating bands sweeping the deep background
-     5. Smoothed mouse parallax (lerped tx/ty → x/y)
-     6. Satellite teeth + molecule orbiters (retained & improved from original)
-     7. Background cross-section ring (retained)
+   DASHBOARD METEOR CANVAS  — pure Canvas 2D, zero dependencies
+   White/grey meteors only, depth layers, lightweight 60fps
+══════════════════════════════════════════════════════════════════════ */
+function MeteorCanvas() {
+  const canvasRef = useRef(null);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+
+    let animId;
+    const ANGLE = Math.PI / 5; /* ~36° steep diagonal */
+    const cos = Math.cos(ANGLE),
+      sin = Math.sin(ANGLE);
+
+    const resize = () => {
+      canvas.width = canvas.offsetWidth;
+      canvas.height = canvas.offsetHeight;
+    };
+    resize();
+    window.addEventListener("resize", resize);
+
+    /* 60 meteors across 3 depth layers */
+    const spawn = (randomY = false) => {
+      const depth = Math.random(); /* 0=far/tiny, 1=near/big */
+      const speed = 1.2 + depth * 5.5;
+      const tailLen = 40 + depth * 180;
+      const width = 0.4 + depth * 1.6;
+      const alpha = 0.08 + depth * 0.55;
+      const W = canvas.width,
+        H = canvas.height;
+      return {
+        x: Math.random() * (W + H) /* start anywhere across top+right */,
+        y: randomY ? Math.random() * H : -Math.random() * H * 0.6,
+        speed,
+        tailLen,
+        width,
+        alpha,
+        depth,
+      };
+    };
+
+    const meteors = Array.from({ length: 60 }, () => spawn(true));
+
+    const draw = () => {
+      animId = requestAnimationFrame(draw);
+      const W = canvas.width,
+        H = canvas.height;
+
+      /* Fade trail — thin transparent clear */
+      ctx.clearRect(0, 0, W, H);
+
+      for (const m of meteors) {
+        /* Move */
+        m.x -= cos * m.speed;
+        m.y += sin * m.speed;
+
+        /* Recycle when off screen */
+        if (m.y > H + 20 || m.x < -20) {
+          Object.assign(m, spawn(false));
+          m.x = Math.random() * W + H * 0.3;
+        }
+
+        /* Tail: gradient line from transparent → bright white */
+        const tx = m.x + cos * m.tailLen;
+        const ty = m.y - sin * m.tailLen;
+        const grad = ctx.createLinearGradient(tx, ty, m.x, m.y);
+        grad.addColorStop(0, `rgba(255,255,255,0)`);
+        grad.addColorStop(0.7, `rgba(255,255,255,${m.alpha * 0.4})`);
+        grad.addColorStop(1, `rgba(255,255,255,${m.alpha})`);
+
+        ctx.beginPath();
+        ctx.moveTo(tx, ty);
+        ctx.lineTo(m.x, m.y);
+        ctx.strokeStyle = grad;
+        ctx.lineWidth = m.width;
+        ctx.lineCap = "round";
+        ctx.stroke();
+
+        /* Head glow — small radial circle */
+        const glow = ctx.createRadialGradient(
+          m.x,
+          m.y,
+          0,
+          m.x,
+          m.y,
+          m.width * 4,
+        );
+        glow.addColorStop(0, `rgba(255,255,255,${m.alpha})`);
+        glow.addColorStop(1, `rgba(255,255,255,0)`);
+        ctx.beginPath();
+        ctx.arc(m.x, m.y, m.width * 4, 0, Math.PI * 2);
+        ctx.fillStyle = glow;
+        ctx.fill();
+      }
+    };
+
+    draw();
+    return () => {
+      cancelAnimationFrame(animId);
+      window.removeEventListener("resize", resize);
+    };
+  }, []);
+
+  return (
+    <canvas
+      ref={canvasRef}
+      style={{
+        position: "fixed",
+        inset: 0,
+        width: "100%",
+        height: "100%",
+        zIndex: 0,
+        pointerEvents: "none",
+      }}
+    />
+  );
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   HERO CANVAS (Landing page — unchanged)
 ══════════════════════════════════════════════════════════════════════ */
 function HeroCanvas() {
   const mountRef = useRef(null);
@@ -227,7 +340,6 @@ function HeroCanvas() {
 
     import("https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js")
       .then((THREE) => {
-        /* ── Renderer ── */
         const W = el.clientWidth,
           H = el.clientHeight;
         const renderer = new THREE.WebGLRenderer({
@@ -243,7 +355,6 @@ function HeroCanvas() {
         const camera = new THREE.PerspectiveCamera(55, W / H, 0.1, 300);
         camera.position.set(0, 0, 32);
 
-        /* ── Smoothed mouse parallax ── */
         const mouse = { x: 0, y: 0, tx: 0, ty: 0 };
         const onMouse = (e) => {
           mouse.tx = (e.clientX / innerWidth - 0.5) * 2;
@@ -256,7 +367,6 @@ function HeroCanvas() {
           EM = 0x00e5a0,
           GD = 0xc9a84c;
 
-        /* ── Sprite texture helper ── */
         const makeSprite = (r, g, b) => {
           const c = document.createElement("canvas");
           c.width = c.height = 64;
@@ -270,14 +380,9 @@ function HeroCanvas() {
           return new THREE.CanvasTexture(c);
         };
         const spPink = makeSprite(253, 53, 109);
-        const spGreen = makeSprite(0, 229, 160); // eslint-disable-line no-unused-vars
         const spGold = makeSprite(201, 168, 76);
         const spWhite = makeSprite(255, 210, 225);
 
-        /* ════════════════════════════════
-           1. CENTRAL CRYSTAL TOOTH
-        ════════════════════════════════ */
-        const toothGroup = new THREE.Group();
         const toothPts = [
           new THREE.Vector2(0, 0),
           new THREE.Vector2(0.5, 0.05),
@@ -288,7 +393,7 @@ function HeroCanvas() {
           new THREE.Vector2(0, 1.48),
         ];
 
-        /* Outer crown */
+        const toothGroup = new THREE.Group();
         const outerLathe = new THREE.LatheGeometry(toothPts, 16);
         toothGroup.add(
           new THREE.LineSegments(
@@ -301,8 +406,6 @@ function HeroCanvas() {
             }),
           ),
         );
-
-        /* Inner crown (60% scale) */
         const innerPts = toothPts.map((v) => new THREE.Vector2(v.x * 0.6, v.y));
         const innerLathe = new THREE.LatheGeometry(innerPts, 12);
         toothGroup.add(
@@ -316,8 +419,6 @@ function HeroCanvas() {
             }),
           ),
         );
-
-        /* Root */
         const rootMesh = new THREE.LineSegments(
           new THREE.EdgesGeometry(
             new THREE.CylinderGeometry(0.35, 0.1, 2.0, 10),
@@ -331,12 +432,10 @@ function HeroCanvas() {
         );
         rootMesh.position.y = -1.4;
         toothGroup.add(rootMesh);
-
         toothGroup.scale.setScalar(2.2);
         toothGroup.position.set(0, -1, 0);
         scene.add(toothGroup);
 
-        /* Pulsing glow point */
         const glowGeo = new THREE.BufferGeometry();
         glowGeo.setAttribute(
           "position",
@@ -356,9 +455,6 @@ function HeroCanvas() {
         glowMesh.position.set(0, 1, 0);
         scene.add(glowMesh);
 
-        /* ════════════════════════════════
-           2. UPGRADED DOUBLE HELIX
-        ════════════════════════════════ */
         const makeHelix = (angleOffset, col1, col2, opacity, pos, rotZ) => {
           const g = new THREE.Group();
           const N = 140,
@@ -368,11 +464,10 @@ function HeroCanvas() {
           const pts1 = [],
             pts2 = [],
             rungPts = [];
-
           for (let i = 0; i <= N; i++) {
-            const t = i / N;
-            const a = t * Math.PI * 2 * TURNS + angleOffset;
-            const y = t * HEIGHT - HEIGHT / 2;
+            const t = i / N,
+              a = t * Math.PI * 2 * TURNS + angleOffset,
+              y = t * HEIGHT - HEIGHT / 2;
             pts1.push(new THREE.Vector3(Math.cos(a) * R, y, Math.sin(a) * R));
             pts2.push(
               new THREE.Vector3(
@@ -392,7 +487,6 @@ function HeroCanvas() {
               );
             }
           }
-
           g.add(
             new THREE.Line(
               new THREE.BufferGeometry().setFromPoints(pts1),
@@ -426,7 +520,6 @@ function HeroCanvas() {
               }),
             ),
           );
-
           g.position.copy(pos);
           g.rotation.z = rotZ;
           return g;
@@ -450,9 +543,6 @@ function HeroCanvas() {
         );
         scene.add(helixL, helixR);
 
-        /* ════════════════════════════════
-           3. SATELLITE TEETH
-        ════════════════════════════════ */
         const satTeeth = [];
         [
           { x: -18, y: 5, z: -14, s: 1.3 },
@@ -505,148 +595,55 @@ function HeroCanvas() {
           satTeeth.push(g);
         });
 
-        /* ════════════════════════════════
-           4. MOLECULE ORBITERS
-        ════════════════════════════════ */
-        const mols = [];
-        [
-          [-14, 4, -6, AC],
-          [14, -5, -5, EM],
-          [2, 9, -10, GD],
-          [-6, -9, -8, AC],
-          [18, 8, -12, EM],
-        ].forEach(([x, y, z, col]) => {
-          const m = new THREE.Group();
-          m.add(
-            new THREE.LineSegments(
-              new THREE.EdgesGeometry(new THREE.SphereGeometry(0.28, 10, 10)),
-              new THREE.LineBasicMaterial({
-                color: col,
-                transparent: true,
-                opacity: 0.5,
-                blending: ADD,
-              }),
-            ),
-          );
-          const orbR = 0.9 + Math.random() * 0.5;
-          const torus = new THREE.Mesh(
-            new THREE.TorusGeometry(orbR, 0.025, 6, 48),
-            new THREE.MeshBasicMaterial({
-              color: col,
-              transparent: true,
-              opacity: 0.12,
-              blending: ADD,
-            }),
-          );
-          torus.rotation.x = Math.PI / 2;
-          m.add(torus);
-
-          const elecs = [0, 1, 2].map((k) => {
+        const starLayers = [
+          (() => {
+            const count = 220,
+              pos = new Float32Array(count * 3),
+              vel = [];
+            for (let i = 0; i < count; i++) {
+              pos[i * 3] = (Math.random() - 0.5) * 80;
+              pos[i * 3 + 1] = (Math.random() - 0.5) * 48;
+              pos[i * 3 + 2] = (Math.random() - 0.5) * 20 - 15;
+              vel.push({
+                vx: (Math.random() - 0.5) * 0.007,
+                vy: (Math.random() - 0.5) * 0.005,
+              });
+            }
             const geo = new THREE.BufferGeometry();
-            geo.setAttribute(
-              "position",
-              new THREE.BufferAttribute(new Float32Array([0, 0, 0]), 3),
-            );
-            const pt = new THREE.Points(
+            geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+            return {
+              pts: new THREE.Points(
+                geo,
+                new THREE.PointsMaterial({
+                  size: 0.12,
+                  map: spWhite,
+                  color: 0xffe0eb,
+                  transparent: true,
+                  opacity: 0.45,
+                  depthWrite: false,
+                  blending: ADD,
+                }),
+              ),
               geo,
-              new THREE.PointsMaterial({
-                size: 0.2,
-                map: spPink,
-                transparent: true,
-                opacity: 0.9,
-                depthWrite: false,
-                blending: ADD,
-                color: col,
-              }),
-            );
-            m.add(pt);
-            return { mesh: pt, phase: (k / 3) * Math.PI * 2, r: orbR };
-          });
-
-          m.position.set(x, y, z);
-          m.rotation.set(
-            Math.random() * Math.PI,
-            Math.random() * Math.PI,
-            Math.random() * Math.PI,
-          );
-          m.userData = {
-            rs: new THREE.Vector3(
-              (Math.random() - 0.5) * 0.006,
-              (Math.random() - 0.5) * 0.008,
-              (Math.random() - 0.5) * 0.004,
-            ),
-            baseY: y,
-            fp: 0.35 + Math.random() * 0.3,
-            fa: 0.4 + Math.random() * 0.5,
-            fo: Math.random() * Math.PI * 2,
-            es: 0.8 + Math.random() * 0.6,
-            elecs,
-          };
-          scene.add(m);
-          mols.push(m);
+              vel,
+              count,
+              spread: 80,
+              mat: null,
+            };
+          })(),
+        ];
+        starLayers.forEach((l) => {
+          l.mat = l.pts.material;
+          scene.add(l.pts);
         });
 
-        /* ════════════════════════════════
-           5. THREE-LAYER STAR FIELD
-        ════════════════════════════════ */
-        const makeStarLayer = (
-          count,
-          spread,
-          size,
-          colHex,
-          spriteMap,
-          opacity,
-        ) => {
-          const pos = new Float32Array(count * 3);
-          const vel = [];
-          for (let i = 0; i < count; i++) {
-            pos[i * 3] = (Math.random() - 0.5) * spread;
-            pos[i * 3 + 1] = (Math.random() - 0.5) * spread * 0.6;
-            pos[i * 3 + 2] = (Math.random() - 0.5) * 20 - 15;
-            vel.push({
-              vx: (Math.random() - 0.5) * 0.007,
-              vy: (Math.random() - 0.5) * 0.005,
-            });
-          }
-          const geo = new THREE.BufferGeometry();
-          geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
-          const mat = new THREE.PointsMaterial({
-            size,
-            map: spriteMap,
-            color: colHex,
-            transparent: true,
-            opacity,
-            depthWrite: false,
-            blending: ADD,
-          });
-          return {
-            pts: new THREE.Points(geo, mat),
-            geo,
-            vel,
-            mat,
-            count,
-            spread,
-          };
-        };
-
-        const starLayers = [
-          makeStarLayer(220, 80, 0.12, 0xffe0eb, spWhite, 0.45),
-          makeStarLayer(80, 60, 0.22, 0xfd356d, spPink, 0.3),
-          makeStarLayer(40, 50, 0.35, 0xc9a84c, spGold, 0.35),
-        ];
-        starLayers.forEach((l) => scene.add(l.pts));
-
-        /* ════════════════════════════════
-           6. AURORA SINE WAVE MESH
-        ════════════════════════════════ */
         const auroraLines = [];
         for (let band = 0; band < 8; band++) {
           const pts = [];
-          for (let i = 0; i <= 120; i++) {
+          for (let i = 0; i <= 120; i++)
             pts.push(
               new THREE.Vector3((i / 120) * 60 - 30, 0, -30 - band * 0.5),
             );
-          }
           const geo = new THREE.BufferGeometry().setFromPoints(pts);
           const col = band < 3 ? AC : band < 6 ? EM : GD;
           const line = new THREE.Line(
@@ -662,9 +659,6 @@ function HeroCanvas() {
           scene.add(line);
         }
 
-        /* ════════════════════════════════
-           7. BACKGROUND CROSS-SECTION RING
-        ════════════════════════════════ */
         const outerRing = new THREE.Mesh(
           new THREE.TorusGeometry(14, 0.06, 8, 120),
           new THREE.MeshBasicMaterial({
@@ -686,27 +680,6 @@ function HeroCanvas() {
         [outerRing, innerRing].forEach((r) => r.position.set(6, -2, -22));
         scene.add(outerRing, innerRing);
 
-        const radPts = [];
-        for (let i = 0; i < 24; i++) {
-          const a = (i / 24) * Math.PI * 2;
-          radPts.push(
-            new THREE.Vector3(Math.cos(a) * 1.5, Math.sin(a) * 1.5, 0),
-            new THREE.Vector3(Math.cos(a) * 13.8, Math.sin(a) * 13.8, 0),
-          );
-        }
-        const radLines = new THREE.LineSegments(
-          new THREE.BufferGeometry().setFromPoints(radPts),
-          new THREE.LineBasicMaterial({
-            color: AC,
-            transparent: true,
-            opacity: 0.025,
-            blending: ADD,
-          }),
-        );
-        radLines.position.set(6, -2, -22);
-        scene.add(radLines);
-
-        /* ── Resize ── */
         const onResize = () => {
           const nW = el.clientWidth,
             nH = el.clientHeight;
@@ -716,71 +689,35 @@ function HeroCanvas() {
         };
         window.addEventListener("resize", onResize);
 
-        /* ── Animation loop ── */
         let tick = 0;
         const loop = () => {
           animId = requestAnimationFrame(loop);
           tick += 0.007;
-
-          /* Smooth mouse lerp */
           mouse.x += (mouse.tx - mouse.x) * 0.04;
           mouse.y += (mouse.ty - mouse.y) * 0.04;
-
-          /* Central tooth */
           toothGroup.rotation.y = tick * 0.12;
           toothGroup.rotation.x = Math.sin(tick * 0.3) * 0.08;
           glowMesh.material.opacity = 0.15 + 0.12 * Math.sin(tick * 1.5);
-
-          /* Helixes */
           helixL.rotation.y = tick * 0.08;
           helixR.rotation.y = -tick * 0.06;
-
-          /* Satellite teeth */
           satTeeth.forEach((t) => {
             const d = t.userData;
             t.position.y = d.baseY + Math.sin(tick * d.fp + d.ph) * d.fa;
             t.rotation.y += d.rs;
           });
-
-          /* Molecules */
-          mols.forEach((m) => {
-            const d = m.userData;
-            m.rotation.x += d.rs.x;
-            m.rotation.y += d.rs.y;
-            m.rotation.z += d.rs.z;
-            m.position.y = d.baseY + Math.sin(tick * d.fp + d.fo) * d.fa;
-            d.elecs.forEach((e) => {
-              const a = tick * d.es + e.phase;
-              const p = e.mesh.geometry.attributes.position;
-              p.array[0] = Math.cos(a) * e.r;
-              p.array[2] = Math.sin(a) * e.r;
-              p.needsUpdate = true;
-            });
-          });
-
-          /* Star layers drift + wrap */
-          starLayers.forEach((l, li) => {
+          starLayers.forEach((l) => {
             const pos = l.geo.attributes.position;
-            const spd = 0.6 + li * 0.3;
             for (let i = 0; i < l.count; i++) {
-              pos.array[i * 3] += l.vel[i].vx * spd;
-              pos.array[i * 3 + 1] += l.vel[i].vy * spd;
-              if (pos.array[i * 3] > l.spread / 2)
-                pos.array[i * 3] = -l.spread / 2;
-              if (pos.array[i * 3] < -l.spread / 2)
-                pos.array[i * 3] = l.spread / 2;
-              if (pos.array[i * 3 + 1] > l.spread * 0.3)
-                pos.array[i * 3 + 1] = -l.spread * 0.3;
-              if (pos.array[i * 3 + 1] < -l.spread * 0.3)
-                pos.array[i * 3 + 1] = l.spread * 0.3;
+              pos.array[i * 3] += l.vel[i].vx;
+              pos.array[i * 3 + 1] += l.vel[i].vy;
+              if (pos.array[i * 3] > 40) pos.array[i * 3] = -40;
+              if (pos.array[i * 3] < -40) pos.array[i * 3] = 40;
+              if (pos.array[i * 3 + 1] > 24) pos.array[i * 3 + 1] = -24;
+              if (pos.array[i * 3 + 1] < -24) pos.array[i * 3 + 1] = 24;
             }
             pos.needsUpdate = true;
-            l.mat.opacity =
-              (li === 0 ? 0.38 : li === 1 ? 0.28 : 0.32) +
-              0.1 * Math.sin(tick * (0.9 + li * 0.4));
+            l.mat.opacity = 0.38 + 0.1 * Math.sin(tick * 0.9);
           });
-
-          /* Aurora waves animate */
           auroraLines.forEach((line, band) => {
             const pos = line.geometry.attributes.position;
             const freq = 0.15 + band * 0.03;
@@ -795,17 +732,11 @@ function HeroCanvas() {
             }
             pos.needsUpdate = true;
           });
-
-          /* Background rings */
           outerRing.rotation.z = tick * 0.025;
           innerRing.rotation.z = -tick * 0.035;
-          radLines.rotation.z = tick * 0.018;
-
-          /* Camera parallax */
           camera.position.x += (mouse.x * 3.5 - camera.position.x) * 0.025;
           camera.position.y += (-mouse.y * 2.5 - camera.position.y) * 0.025;
           camera.lookAt(scene.position);
-
           renderer.render(scene, camera);
         };
         loop();
@@ -945,7 +876,7 @@ function LandingPage({ onLogin, onRegister, onDoctorLogin }) {
       <div className="noise" />
       <div className="grid-bg" />
 
-      {/* ── NAV ── */}
+      {/* NAV */}
       <nav
         style={{
           position: "fixed",
@@ -972,7 +903,6 @@ function LandingPage({ onLogin, onRegister, onDoctorLogin }) {
             justifyContent: "space-between",
           }}
         >
-          {/* Logo */}
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
             <div
               style={{
@@ -983,7 +913,6 @@ function LandingPage({ onLogin, onRegister, onDoctorLogin }) {
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
-                position: "relative",
               }}
             >
               <FaTooth style={{ color: "white", fontSize: 16 }} />
@@ -1014,12 +943,7 @@ function LandingPage({ onLogin, onRegister, onDoctorLogin }) {
               </p>
             </div>
           </div>
-
-          {/* Desktop links */}
-          <div
-            style={{ display: "flex", alignItems: "center", gap: 36 }}
-            className="hidden md:flex"
-          >
+          <div style={{ display: "flex", alignItems: "center", gap: 36 }}>
             {["Services", "How It Works", "Testimonials", "Contact"].map(
               (l) => (
                 <a
@@ -1040,11 +964,7 @@ function LandingPage({ onLogin, onRegister, onDoctorLogin }) {
               ),
             )}
           </div>
-
-          <div
-            style={{ display: "flex", alignItems: "center", gap: 10 }}
-            className="hidden md:flex"
-          >
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <button
               onClick={onDoctorLogin}
               className="btn-ghost"
@@ -1067,86 +987,10 @@ function LandingPage({ onLogin, onRegister, onDoctorLogin }) {
               Get Started →
             </button>
           </div>
-
-          <button
-            className="md:hidden"
-            onClick={() => setMenuOpen((m) => !m)}
-            style={{
-              background: "none",
-              border: "none",
-              color: T.text,
-              cursor: "pointer",
-            }}
-          >
-            {menuOpen ? <FaTimes size={22} /> : <FaBars size={22} />}
-          </button>
         </div>
-
-        <AnimatePresence>
-          {menuOpen && (
-            <motion.div
-              initial={{ opacity: 0, y: -10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -10 }}
-              style={{
-                background: T.surface,
-                borderTop: `1px solid ${T.border}`,
-                padding: "20px 32px",
-                display: "flex",
-                flexDirection: "column",
-                gap: 16,
-                borderRadius: "0 0 20px 20px",
-              }}
-            >
-              {["Services", "How It Works", "Testimonials", "Contact"].map(
-                (l) => (
-                  <a
-                    key={l}
-                    href={`#${l.toLowerCase().replace(/\s+/g, "-")}`}
-                    style={{
-                      color: T.muted,
-                      fontSize: 15,
-                      fontWeight: 500,
-                      textDecoration: "none",
-                    }}
-                    onClick={() => setMenuOpen(false)}
-                  >
-                    {l}
-                  </a>
-                ),
-              )}
-              <div style={{ display: "flex", gap: 10, paddingTop: 8 }}>
-                <button
-                  onClick={onLogin}
-                  className="btn-ghost"
-                  style={{
-                    flex: 1,
-                    padding: "11px 0",
-                    borderRadius: 12,
-                    fontSize: 13,
-                  }}
-                >
-                  Sign In
-                </button>
-                <button
-                  onClick={onRegister}
-                  className="btn-primary"
-                  style={{
-                    flex: 1,
-                    padding: "11px 0",
-                    borderRadius: 12,
-                    fontSize: 13,
-                  }}
-                >
-                  Get Started
-                </button>
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
       </nav>
 
-      {/* ── HERO ── */}
+      {/* HERO */}
       <section
         ref={heroRef}
         style={{
@@ -1158,10 +1002,7 @@ function LandingPage({ onLogin, onRegister, onDoctorLogin }) {
           overflow: "hidden",
         }}
       >
-        {/* Upgraded 3-D dental scene */}
         <HeroCanvas />
-
-        {/* Radial vignette */}
         <div
           style={{
             position: "absolute",
@@ -1171,10 +1012,8 @@ function LandingPage({ onLogin, onRegister, onDoctorLogin }) {
             background: `radial-gradient(ellipse 85% 65% at 50% 50%, transparent 20%, ${T.bg}BB 100%)`,
           }}
         />
-
         <motion.div
           style={{ y: heroY, position: "relative", zIndex: 2, width: "100%" }}
-          className="w-full"
         >
           <div
             style={{
@@ -1187,7 +1026,6 @@ function LandingPage({ onLogin, onRegister, onDoctorLogin }) {
               alignItems: "center",
             }}
           >
-            {/* Left copy */}
             <motion.div
               initial={{ opacity: 0, x: -40 }}
               animate={{ opacity: 1, x: 0 }}
@@ -1200,12 +1038,10 @@ function LandingPage({ onLogin, onRegister, onDoctorLogin }) {
                     height: 6,
                     background: T.accent,
                     borderRadius: "50%",
-                    animation: "pulse 2s infinite",
                   }}
                 />
                 Next-Gen Dental Experience
               </div>
-
               <h1
                 style={{
                   fontFamily: "'Syne',sans-serif",
@@ -1231,7 +1067,6 @@ function LandingPage({ onLogin, onRegister, onDoctorLogin }) {
                   Smile Starts Here.
                 </span>
               </h1>
-
               <p
                 style={{
                   color: T.muted,
@@ -1246,7 +1081,6 @@ function LandingPage({ onLogin, onRegister, onDoctorLogin }) {
                 your questions, and connects you with elite specialists, all
                 through natural conversation.
               </p>
-
               <div
                 style={{
                   display: "flex",
@@ -1281,16 +1115,6 @@ function LandingPage({ onLogin, onRegister, onDoctorLogin }) {
                   Sign In
                 </button>
               </div>
-
-              <div
-                style={{
-                  borderTop: `1px solid ${T.border}`,
-                  paddingTop: 36,
-                  display: "grid",
-                  gridTemplateColumns: "repeat(3,1fr)",
-                  gap: 24,
-                }}
-              ></div>
             </motion.div>
 
             {/* Sarah card */}
@@ -1322,8 +1146,6 @@ function LandingPage({ onLogin, onRegister, onDoctorLogin }) {
                 >
                   <div className="scan-line" />
                 </div>
-
-                {/* Live badge */}
                 <div
                   style={{
                     position: "absolute",
@@ -1344,7 +1166,6 @@ function LandingPage({ onLogin, onRegister, onDoctorLogin }) {
                       height: 6,
                       background: T.emerald,
                       borderRadius: "50%",
-                      animation: "pulse 1.5s infinite",
                     }}
                   />
                   <span
@@ -1358,8 +1179,6 @@ function LandingPage({ onLogin, onRegister, onDoctorLogin }) {
                     LIVE
                   </span>
                 </div>
-
-                {/* Avatar */}
                 <div
                   style={{
                     position: "relative",
@@ -1391,7 +1210,6 @@ function LandingPage({ onLogin, onRegister, onDoctorLogin }) {
                     <div className="pulse-ring" />
                   </div>
                 </div>
-
                 <p
                   style={{
                     fontFamily: "'Syne',sans-serif",
@@ -1406,7 +1224,6 @@ function LandingPage({ onLogin, onRegister, onDoctorLogin }) {
                 <p style={{ color: T.muted, fontSize: 13, marginBottom: 24 }}>
                   Your AI-Powered Dental Concierge
                 </p>
-
                 <div
                   style={{
                     background: T.surface,
@@ -1453,8 +1270,6 @@ function LandingPage({ onLogin, onRegister, onDoctorLogin }) {
                     </div>
                   ))}
                 </div>
-
-                {/* Voice wave */}
                 <div
                   style={{
                     display: "flex",
@@ -1489,7 +1304,6 @@ function LandingPage({ onLogin, onRegister, onDoctorLogin }) {
                     Listening…
                   </span>
                 </div>
-
                 <button
                   onClick={onRegister}
                   className="btn-primary"
@@ -1506,7 +1320,6 @@ function LandingPage({ onLogin, onRegister, onDoctorLogin }) {
             </motion.div>
           </div>
         </motion.div>
-
         <div
           style={{
             position: "absolute",
@@ -1522,7 +1335,7 @@ function LandingPage({ onLogin, onRegister, onDoctorLogin }) {
         </div>
       </section>
 
-      {/* ── SERVICES ── */}
+      {/* SERVICES */}
       <section
         id="services"
         style={{ padding: "100px 0", position: "relative", zIndex: 1 }}
@@ -1618,7 +1431,7 @@ function LandingPage({ onLogin, onRegister, onDoctorLogin }) {
         </div>
       </section>
 
-      {/* ── HOW IT WORKS ── */}
+      {/* HOW IT WORKS */}
       <section
         id="how-it-works"
         style={{
@@ -1661,7 +1474,6 @@ function LandingPage({ onLogin, onRegister, onDoctorLogin }) {
               <span className="grad-cool">Just three steps away.</span>
             </h2>
           </motion.div>
-
           <div
             style={{
               display: "grid",
@@ -1734,7 +1546,6 @@ function LandingPage({ onLogin, onRegister, onDoctorLogin }) {
               </motion.div>
             ))}
           </div>
-
           <motion.div
             initial={{ opacity: 0 }}
             whileInView={{ opacity: 1 }}
@@ -1759,7 +1570,7 @@ function LandingPage({ onLogin, onRegister, onDoctorLogin }) {
         </div>
       </section>
 
-      {/* ── TESTIMONIALS ── */}
+      {/* TESTIMONIALS */}
       <section
         id="testimonials"
         style={{ padding: "100px 0", position: "relative", zIndex: 1 }}
@@ -1851,7 +1662,7 @@ function LandingPage({ onLogin, onRegister, onDoctorLogin }) {
         </div>
       </section>
 
-      {/* ── DOCTOR CTA ── */}
+      {/* DOCTOR CTA */}
       <section style={{ padding: "72px 0", position: "relative", zIndex: 1 }}>
         <div style={{ maxWidth: 1100, margin: "0 auto", padding: "0 32px" }}>
           <motion.div
@@ -1945,7 +1756,7 @@ function LandingPage({ onLogin, onRegister, onDoctorLogin }) {
         </div>
       </section>
 
-      {/* ── CONTACT ── */}
+      {/* CONTACT */}
       <section
         id="contact"
         style={{
@@ -2067,7 +1878,6 @@ function LandingPage({ onLogin, onRegister, onDoctorLogin }) {
               ))}
             </div>
           </motion.div>
-
           <motion.div
             initial={{ opacity: 0, x: 24 }}
             whileInView={{ opacity: 1, x: 0 }}
@@ -2115,7 +1925,7 @@ function LandingPage({ onLogin, onRegister, onDoctorLogin }) {
         </div>
       </section>
 
-      {/* ── FOOTER ── */}
+      {/* FOOTER */}
       <footer
         style={{
           background: T.bg,
@@ -2196,7 +2006,7 @@ function LandingPage({ onLogin, onRegister, onDoctorLogin }) {
 }
 
 /* ══════════════════════════════════════════════════════════════════════
-   DASHBOARD
+   DASHBOARD  — with 3D falling meteors background
 ══════════════════════════════════════════════════════════════════════ */
 function Dashboard({ user, onLogout }) {
   const [doctors, setDoctors] = useState([]);
@@ -2249,13 +2059,36 @@ function Dashboard({ user, onLogout }) {
         position: "relative",
       }}
     >
-      <div className="noise" />
-      <div className="grid-bg" />
+      {/* ══ 3D METEOR CANVAS — fills entire dashboard viewport ══ */}
+      <MeteorCanvas />
+
+      {/* Subtle vignette over meteors so content stays readable */}
+      <div
+        style={{
+          position: "fixed",
+          inset: 0,
+          zIndex: 1,
+          pointerEvents: "none",
+          background: `radial-gradient(ellipse 100% 100% at 50% 50%, ${T.bg}00 0%, ${T.bg}55 60%, ${T.bg}CC 100%)`,
+        }}
+      />
+
+      {/* Very light grid — still visible through meteor layer */}
+      <div
+        style={{
+          position: "fixed",
+          inset: 0,
+          zIndex: 1,
+          pointerEvents: "none",
+          backgroundImage: `linear-gradient(${T.accent}04 1px, transparent 1px), linear-gradient(90deg, ${T.accent}04 1px, transparent 1px)`,
+          backgroundSize: "60px 60px",
+        }}
+      />
 
       {/* NAV */}
       <nav
         style={{
-          background: `${T.surface}E0`,
+          background: `${T.surface}D8`,
           backdropFilter: "blur(20px)",
           borderBottom: `1px solid ${T.border}`,
           position: "sticky",
@@ -2314,11 +2147,7 @@ function Dashboard({ user, onLogout }) {
               </p>
             </div>
           </div>
-
-          <div
-            style={{ display: "flex", alignItems: "center", gap: 10 }}
-            className="hidden md:flex"
-          >
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <div
               style={{
                 display: "flex",
@@ -2388,95 +2217,17 @@ function Dashboard({ user, onLogout }) {
               <FaSignOutAlt /> Sign Out
             </button>
           </div>
-
-          <button
-            className="md:hidden"
-            onClick={() => setMenuOpen((m) => !m)}
-            style={{
-              background: "none",
-              border: "none",
-              color: T.text,
-              cursor: "pointer",
-            }}
-          >
-            {menuOpen ? <FaTimes size={20} /> : <FaBars size={20} />}
-          </button>
         </div>
-
-        <AnimatePresence>
-          {menuOpen && (
-            <motion.div
-              initial={{ opacity: 0, y: -8 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -8 }}
-              style={{
-                background: T.surface,
-                borderTop: `1px solid ${T.border}`,
-                padding: "16px 32px",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-              }}
-            >
-              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                <div
-                  style={{
-                    width: 34,
-                    height: 34,
-                    borderRadius: 10,
-                    background: `linear-gradient(135deg,${T.accent},${ACCENT_DARK})`,
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    color: "white",
-                    fontWeight: 700,
-                  }}
-                >
-                  {initial}
-                </div>
-                <div>
-                  <p style={{ fontWeight: 600, fontSize: 13, color: T.text }}>
-                    {user?.name}
-                  </p>
-                  <p
-                    style={{
-                      fontSize: 11,
-                      color: T.muted,
-                      textTransform: "capitalize",
-                    }}
-                  >
-                    {role}
-                  </p>
-                </div>
-              </div>
-              <button
-                onClick={onLogout}
-                style={{
-                  color: T.danger,
-                  fontWeight: 600,
-                  fontSize: 13,
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 6,
-                  background: "none",
-                  border: "none",
-                  cursor: "pointer",
-                }}
-              >
-                <FaSignOutAlt /> Sign Out
-              </button>
-            </motion.div>
-          )}
-        </AnimatePresence>
       </nav>
 
+      {/* CONTENT */}
       <div
         style={{
           maxWidth: 1200,
           margin: "0 auto",
           padding: "40px 32px",
           position: "relative",
-          zIndex: 1,
+          zIndex: 2,
         }}
       >
         {/* Welcome */}
@@ -2484,13 +2235,14 @@ function Dashboard({ user, onLogout }) {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           style={{
-            background: T.card,
+            background: `${T.card}E8`,
             border: `1px solid ${T.border}`,
             borderRadius: 22,
             padding: "36px 40px",
             marginBottom: 20,
             position: "relative",
             overflow: "hidden",
+            backdropFilter: "blur(8px)",
           }}
         >
           <div
@@ -2542,11 +2294,12 @@ function Dashboard({ user, onLogout }) {
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.1 }}
           style={{
-            background: T.card,
+            background: `${T.card}E8`,
             border: `1px solid ${T.border}`,
             borderRadius: 22,
             padding: "28px 32px",
             marginBottom: 20,
+            backdropFilter: "blur(8px)",
           }}
         >
           <div
@@ -2733,8 +2486,16 @@ function Dashboard({ user, onLogout }) {
           ].map((s, i) => (
             <div
               key={i}
-              className="stat-card"
-              style={{ display: "flex", alignItems: "center", gap: 14 }}
+              style={{
+                background: `${T.surface}E8`,
+                border: `1px solid ${T.border}`,
+                borderRadius: 16,
+                padding: "22px 24px",
+                display: "flex",
+                alignItems: "center",
+                gap: 14,
+                backdropFilter: "blur(8px)",
+              }}
             >
               <div
                 style={{
@@ -2842,11 +2603,7 @@ function Dashboard({ user, onLogout }) {
               }}
             >
               {[1, 2, 3].map((i) => (
-                <div
-                  key={i}
-                  className="card"
-                  style={{ padding: 22, animation: "pulse 1.5s infinite" }}
-                >
+                <div key={i} className="card" style={{ padding: 22 }}>
                   <div style={{ display: "flex", gap: 14, marginBottom: 14 }}>
                     <div
                       style={{
@@ -2963,7 +2720,11 @@ function Dashboard({ user, onLogout }) {
                       animate={{ opacity: 1, y: 0 }}
                       transition={{ delay: i * 0.06 }}
                       className="card"
-                      style={{ padding: 22 }}
+                      style={{
+                        padding: 22,
+                        backdropFilter: "blur(8px)",
+                        background: `${T.card}E8`,
+                      }}
                     >
                       <div
                         style={{
@@ -3025,7 +2786,6 @@ function Dashboard({ user, onLogout }) {
                           </span>
                         </div>
                       </div>
-
                       <div
                         style={{
                           display: "flex",
@@ -3096,7 +2856,6 @@ function Dashboard({ user, onLogout }) {
                           </span>
                         )}
                       </div>
-
                       {doc.bio && (
                         <p
                           style={{
@@ -3113,7 +2872,6 @@ function Dashboard({ user, onLogout }) {
                           {doc.bio}
                         </p>
                       )}
-
                       <div
                         style={{
                           display: "flex",
