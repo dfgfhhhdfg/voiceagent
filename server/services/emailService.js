@@ -1,44 +1,49 @@
-const nodemailer = require('nodemailer');
-const { generateAppointmentPDF } = require('./pdfservice');
+const nodemailer = require("nodemailer");
+const { generateAppointmentPDF } = require("./pdfservice");
 
 // ── Transporter ────────────────────────────────────────────────────────────
 // Ports 465 and 587 are both blocked by many Indian ISPs.
 // Port 2525 is the universal fallback — unblocked almost everywhere.
 // secure:false + tls config = explicit STARTTLS (fixes "wrong version number" error).
 const transporter = nodemailer.createTransport({
-  host:   process.env.SMTP_HOST || 'smtp.gmail.com',
-  port:   parseInt(process.env.SMTP_PORT || '2525'),
-  secure: false,   // false = plain connect first, then STARTTLS upgrade
+  host: process.env.SMTP_HOST || "smtp.gmail.com",
+  port: parseInt(process.env.SMTP_PORT || "2525"),
+  secure: false, // false = plain connect first, then STARTTLS upgrade
   auth: {
     user: process.env.SMTP_USER,
-    pass: (process.env.SMTP_PASS || '').replace(/\s/g, ''),
+    pass: (process.env.SMTP_PASS || "").replace(/\s/g, ""),
   },
   tls: {
     // Fixes "wrong version number" — prevents immediate SSL handshake on STARTTLS port
     rejectUnauthorized: false,
-    minVersion: 'TLSv1.2',
+    minVersion: "TLSv1.2",
   },
-  pool:              true,
-  maxConnections:    3,
-  rateDelta:         1000,
-  rateLimit:         5,
+  pool: true,
+  maxConnections: 3,
+  rateDelta: 1000,
+  rateLimit: 5,
   connectionTimeout: 20000,
-  greetingTimeout:   15000,
-  socketTimeout:     30000,
+  greetingTimeout: 15000,
+  socketTimeout: 30000,
 });
 
 const FROM = `"SmileCare Dental 🦷" <${process.env.SMTP_FROM || process.env.SMTP_USER}>`;
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 function formatDate(d) {
-  if (!d) return 'N/A';
-  return new Date(d).toLocaleDateString('en-IN', {
-    weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
+  if (!d) return "N/A";
+  return new Date(d).toLocaleDateString("en-IN", {
+    weekday: "long",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
   });
 }
 
 function refId(appointment) {
-  return String(appointment._id || Date.now()).slice(-8).toUpperCase();
+  return String(appointment._id || Date.now())
+    .slice(-8)
+    .toUpperCase();
 }
 
 /**
@@ -50,13 +55,18 @@ async function sendWithRetry(mailOptions, retries = 3) {
       const info = await transporter.sendMail(mailOptions);
       return info;
     } catch (err) {
-      const isNetwork = ['ETIMEDOUT','ECONNREFUSED','ENOTFOUND','ESOCKET'].some(
-        code => err.code === code || err.message?.includes(code)
-      );
+      const isNetwork = [
+        "ETIMEDOUT",
+        "ECONNREFUSED",
+        "ENOTFOUND",
+        "ESOCKET",
+      ].some((code) => err.code === code || err.message?.includes(code));
       if (isNetwork && attempt < retries) {
         const delay = attempt * 2000; // 2s, 4s
-        console.warn(`⚠️  Email send failed (attempt ${attempt}/${retries}): ${err.message} — retrying in ${delay}ms`);
-        await new Promise(r => setTimeout(r, delay));
+        console.warn(
+          `⚠️  Email send failed (attempt ${attempt}/${retries}): ${err.message} — retrying in ${delay}ms`,
+        );
+        await new Promise((r) => setTimeout(r, delay));
       } else {
         throw err;
       }
@@ -66,29 +76,39 @@ async function sendWithRetry(mailOptions, retries = 3) {
 
 // ── Patient confirmation email ─────────────────────────────────────────────
 async function sendAppointmentConfirmation(appointment, doctor = null) {
-  const doctorName = doctor?.name || appointment.doctorName || 'Our Doctor';
-  const fee        = doctor?.consultationFee || doctor?.fee || 500;
+  const doctorName =
+    doctor?.name ||
+    appointment.dentist ||
+    appointment.doctorName ||
+    "Our Doctor";
+  const fee = doctor?.consultationFee || doctor?.fee || 500;
 
   const patient = {
-    name:  appointment.patientName  || 'Patient',
-    email: appointment.patientEmail || '',
-    phone: appointment.patientPhone || '',
+    name: appointment.patientName || "Patient",
+    email: appointment.patientEmail || "",
+    phone: appointment.patientPhone || "",
+  };
+
+  const doctorPayload = {
+    ...(doctor || {}),
+    name: doctorName,
+    consultationFee: fee,
   };
 
   let pdfBuffer = null;
   try {
     pdfBuffer = await generateAppointmentPDF(
       appointment,
-      { ...doctor, name: doctorName, consultationFee: fee },
-      patient
+      doctorPayload,
+      patient,
     );
   } catch (err) {
-    console.error('PDF generation error (patient):', err.message);
+    console.error("PDF generation error (patient):", err.message);
   }
 
   const mailOptions = {
-    from:    FROM,
-    to:      appointment.patientEmail,
+    from: FROM,
+    to: appointment.patientEmail,
     subject: `✅ Appointment Confirmed — ${formatDate(appointment.date)} at ${appointment.time}`,
     html: `
 <!DOCTYPE html>
@@ -126,26 +146,30 @@ async function sendAppointmentConfirmation(appointment, doctor = null) {
         </tr>
         <tr style="background:white;border-top:1px solid #F0EEE8;">
           <td style="padding:12px 16px;font-size:11px;color:#9CA3AF;font-weight:700;letter-spacing:0.08em;">TIME</td>
-          <td style="padding:12px 16px;font-size:14px;color:#0B1F3A;font-weight:600;">${appointment.time || 'N/A'}</td>
+          <td style="padding:12px 16px;font-size:14px;color:#0B1F3A;font-weight:600;">${appointment.time || "N/A"}</td>
         </tr>
         <tr style="background:#F7F6F2;border-top:1px solid #F0EEE8;">
           <td style="padding:12px 16px;font-size:11px;color:#9CA3AF;font-weight:700;letter-spacing:0.08em;">SERVICE</td>
-          <td style="padding:12px 16px;font-size:14px;color:#0B1F3A;font-weight:600;">${appointment.service || 'General Consultation'}</td>
+          <td style="padding:12px 16px;font-size:14px;color:#0B1F3A;font-weight:600;">${appointment.service || "General Consultation"}</td>
         </tr>
         <tr style="background:white;border-top:1px solid #F0EEE8;">
           <td style="padding:12px 16px;font-size:11px;color:#9CA3AF;font-weight:700;letter-spacing:0.08em;">DOCTOR</td>
-          <td style="padding:12px 16px;font-size:14px;color:#0B1F3A;font-weight:600;">${doctorName}${doctor?.specialization ? ` — ${doctor.specialization}` : ''}</td>
+          <td style="padding:12px 16px;font-size:14px;color:#0B1F3A;font-weight:600;">${doctorName}${doctor?.specialization ? ` — ${doctor.specialization}` : ""}</td>
         </tr>
-        ${appointment.notes ? `
+        ${
+          appointment.notes
+            ? `
         <tr style="background:#F7F6F2;border-top:1px solid #F0EEE8;">
           <td style="padding:12px 16px;font-size:11px;color:#9CA3AF;font-weight:700;letter-spacing:0.08em;">NOTES</td>
           <td style="padding:12px 16px;font-size:14px;color:#0B1F3A;">${appointment.notes}</td>
-        </tr>` : ''}
+        </tr>`
+            : ""
+        }
       </table>
 
       <div style="background:#0B1F3A;border-radius:12px;padding:20px 24px;margin-bottom:24px;">
         <p style="color:rgba(255,255,255,0.5);font-size:11px;font-weight:700;letter-spacing:0.1em;margin:0 0 4px;">CONSULTATION FEE</p>
-        <p style="color:#C9A84C;font-size:28px;font-weight:700;margin:0;">₹${fee.toLocaleString('en-IN')}</p>
+        <p style="color:#C9A84C;font-size:28px;font-weight:700;margin:0;">₹${fee.toLocaleString("en-IN")}</p>
         <p style="color:rgba(255,255,255,0.4);font-size:11px;margin:4px 0 0;">Payable at clinic on the day of visit</p>
       </div>
 
@@ -172,42 +196,54 @@ async function sendAppointmentConfirmation(appointment, doctor = null) {
   </div>
 </body>
 </html>`,
-    attachments: pdfBuffer ? [{
-      filename:    `SmileCare_Appointment_${refId(appointment)}.pdf`,
-      content:     pdfBuffer,
-      contentType: 'application/pdf',
-    }] : [],
+    attachments: pdfBuffer
+      ? [
+          {
+            filename: `SmileCare_Appointment_${refId(appointment)}.pdf`,
+            content: pdfBuffer,
+            contentType: "application/pdf",
+          },
+        ]
+      : [],
   };
 
   const info = await sendWithRetry(mailOptions);
-  console.log(`✅ Patient confirmation sent to ${appointment.patientEmail} — ${info.messageId}`);
+  console.log(
+    `✅ Patient confirmation sent to ${appointment.patientEmail} — ${info.messageId}`,
+  );
   return info;
 }
 
 // ── Doctor notification email ──────────────────────────────────────────────
 async function sendDoctorAppointmentNotification(appointment, doctor, patient) {
   if (!doctor?.email) {
-    console.warn('⚠️  Doctor email not found, skipping doctor notification.');
+    console.warn("⚠️  Doctor email not found, skipping doctor notification.");
     return null;
   }
 
   const fee = doctor?.consultationFee || doctor?.fee || 500;
+
+  const patientInfo = {
+    name: patient?.name || appointment.patientName || "N/A",
+    email: patient?.email || appointment.patientEmail || "N/A",
+    phone: patient?.phone || appointment.patientPhone || "N/A",
+  };
 
   let pdfBuffer = null;
   try {
     pdfBuffer = await generateAppointmentPDF(
       appointment,
       { ...doctor, consultationFee: fee },
-      patient
+      patientInfo,
     );
   } catch (err) {
-    console.error('PDF generation error (doctor):', err.message);
+    console.error("PDF generation error (doctor):", err.message);
   }
 
   const mailOptions = {
-    from:    FROM,
-    to:      doctor.email,
-    subject: `📅 New Appointment: ${patient?.name || appointment.patientName} — ${formatDate(appointment.date)} at ${appointment.time}`,
+    from: FROM,
+    to: doctor.email,
+    subject: `📅 New Appointment: ${patientInfo.name} — ${formatDate(appointment.date)} at ${appointment.time}`,
     html: `
 <!DOCTYPE html>
 <html>
@@ -228,42 +264,44 @@ async function sendDoctorAppointmentNotification(appointment, doctor, patient) {
     </div>
 
     <div style="padding:32px 40px;">
-      <h2 style="color:#065F46;font-size:20px;margin:0 0 6px;">New appointment booked, ${doctor.name}!</h2>
-      <p style="color:#6B7280;font-size:14px;margin:0 0 24px;">Sarah has confirmed a new patient appointment. Here are the full details:</p>
+      <h2 style="color:#065F46;font-size:20px;margin:0 0 6px;">New appointment booked</h2>
+      <p style="color:#6B7280;font-size:14px;margin:0 0 24px;">Patient details:</p>
 
       <div style="background:#F0FDF4;border:1px solid #A7F3D0;border-radius:12px;padding:20px 24px;margin-bottom:20px;">
         <p style="color:#065F46;font-weight:700;font-size:13px;margin:0 0 12px;">👤 Patient Details</p>
         <table width="100%" cellspacing="0">
           ${[
-            ['NAME',  patient?.name  || appointment.patientName  || 'N/A'],
-            ['EMAIL', patient?.email || appointment.patientEmail || 'N/A'],
-            ['PHONE', patient?.phone || appointment.patientPhone || 'N/A'],
-          ].map(([l, v]) => `
+            ["NAME", patientInfo.name],
+            ["EMAIL", patientInfo.email],
+            ["PHONE", patientInfo.phone],
+          ]
+            .map(
+              ([l, v]) => `
           <tr>
             <td style="color:#9CA3AF;font-size:11px;font-weight:700;letter-spacing:0.08em;padding:5px 0;width:80px;">${l}</td>
             <td style="color:#065F46;font-size:13px;font-weight:600;padding:5px 0;">${v}</td>
-          </tr>`).join('')}
+          </tr>`,
+            )
+            .join("")}
         </table>
       </div>
 
       <table width="100%" cellspacing="0" cellpadding="0" style="border-radius:12px;overflow:hidden;margin-bottom:20px;">
         ${[
-          ['DATE',    formatDate(appointment.date)],
-          ['TIME',    appointment.time    || 'N/A'],
-          ['SERVICE', appointment.service || 'General Consultation'],
-          ['NOTES',   appointment.notes   || '—'],
-        ].map(([l, v], i) => `
-        <tr style="background:${i % 2 === 0 ? '#F9FAF9' : 'white'};${i > 0 ? 'border-top:1px solid #F0EEE8;' : ''}">
+          ["DATE", formatDate(appointment.date)],
+          ["TIME", appointment.time || "N/A"],
+          ["SERVICE", appointment.service || "General Consultation"],
+          ["NOTES", appointment.notes || "—"],
+        ]
+          .map(
+            ([l, v], i) => `
+        <tr style="background:${i % 2 === 0 ? "#F9FAF9" : "white"};${i > 0 ? "border-top:1px solid #F0EEE8;" : ""}">
           <td style="padding:11px 16px;font-size:11px;color:#9CA3AF;font-weight:700;letter-spacing:0.08em;width:130px;">${l}</td>
           <td style="padding:11px 16px;font-size:13px;color:#065F46;font-weight:600;">${v}</td>
-        </tr>`).join('')}
+        </tr>`,
+          )
+          .join("")}
       </table>
-
-      <div style="background:#065F46;border-radius:12px;padding:18px 24px;margin-bottom:24px;">
-        <p style="color:rgba(255,255,255,0.55);font-size:11px;font-weight:700;letter-spacing:0.1em;margin:0 0 4px;">YOUR CONSULTATION FEE</p>
-        <p style="color:#6EE7B7;font-size:26px;font-weight:700;margin:0;">₹${fee.toLocaleString('en-IN')}</p>
-        <p style="color:rgba(255,255,255,0.4);font-size:11px;margin:4px 0 0;">Collectible at clinic on the day of appointment</p>
-      </div>
 
       <p style="color:#6B7280;font-size:13px;margin:0;">📎 The full appointment order PDF is attached for your records.</p>
     </div>
@@ -274,23 +312,29 @@ async function sendDoctorAppointmentNotification(appointment, doctor, patient) {
   </div>
 </body>
 </html>`,
-    attachments: pdfBuffer ? [{
-      filename:    `SmileCare_Appointment_${refId(appointment)}.pdf`,
-      content:     pdfBuffer,
-      contentType: 'application/pdf',
-    }] : [],
+    attachments: pdfBuffer
+      ? [
+          {
+            filename: `SmileCare_Appointment_${refId(appointment)}.pdf`,
+            content: pdfBuffer,
+            contentType: "application/pdf",
+          },
+        ]
+      : [],
   };
 
   const info = await sendWithRetry(mailOptions);
-  console.log(`✅ Doctor notification sent to ${doctor.email} — ${info.messageId}`);
+  console.log(
+    `✅ Doctor notification sent to ${doctor.email} — ${info.messageId}`,
+  );
   return info;
 }
 
 // ── Cancellation email ─────────────────────────────────────────────────────
 async function sendCancellationEmail(appointment, patient) {
   const mailOptions = {
-    from:    FROM,
-    to:      patient.email,
+    from: FROM,
+    to: patient.email,
     subject: `❌ Appointment Cancelled — ${formatDate(appointment.date)}`,
     html: `
 <body style="font-family:Arial,sans-serif;background:#FEF2F2;padding:32px;">
@@ -301,7 +345,7 @@ async function sendCancellationEmail(appointment, patient) {
     <div style="padding:28px 32px;">
       <p style="color:#374151;">Hi <strong>${patient.name}</strong>,</p>
       <p style="color:#374151;">Your appointment on <strong>${formatDate(appointment.date)}</strong> at <strong>${appointment.time}</strong> has been cancelled.</p>
-      <p style="color:#6B7280;font-size:13px;">To rebook, please call us at ${process.env.CLINIC_PHONE || '+1 (555) 123-4567'} or start a new session with Sarah.</p>
+      <p style="color:#6B7280;font-size:13px;">To rebook, please call us at ${process.env.CLINIC_PHONE || "+1 (555) 123-4567"} or start a new session with Sarah.</p>
     </div>
     <div style="background:#DC2626;padding:14px 32px;text-align:center;">
       <p style="color:rgba(255,255,255,0.6);font-size:11px;margin:0;">SmileCare Dental · Generated by Sarah AI</p>
@@ -311,7 +355,9 @@ async function sendCancellationEmail(appointment, patient) {
   };
 
   const info = await sendWithRetry(mailOptions);
-  console.log(`✅ Cancellation email sent to ${patient.email} — ${info.messageId}`);
+  console.log(
+    `✅ Cancellation email sent to ${patient.email} — ${info.messageId}`,
+  );
   return info;
 }
 
@@ -319,12 +365,16 @@ async function sendCancellationEmail(appointment, patient) {
 async function verifyConnection() {
   try {
     await transporter.verify();
-    console.log(`✅ Email service connected (SMTP port ${process.env.SMTP_PORT || 2525}).`);
+    console.log(
+      `✅ Email service connected (SMTP port ${process.env.SMTP_PORT || 2525}).`,
+    );
   } catch (err) {
-    console.error('❌ Email service error:', err.message);
-    console.error('   → Check SMTP_USER, SMTP_PASS, and SMTP_PORT in .env');
-    console.error('   → Try SMTP_PORT=2525 if 465/587 are blocked');
-    console.error('   → Make sure Gmail App Password is set (not your account password)');
+    console.error("❌ Email service error:", err.message);
+    console.error("   → Check SMTP_USER, SMTP_PASS, and SMTP_PORT in .env");
+    console.error("   → Try SMTP_PORT=2525 if 465/587 are blocked");
+    console.error(
+      "   → Make sure Gmail App Password is set (not your account password)",
+    );
   }
 }
 
