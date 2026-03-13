@@ -1045,14 +1045,19 @@ function LandingPage({ onLogin, onRegister, onDoctorLogin }) {
               <h1
                 style={{
                   fontFamily: "'Syne',sans-serif",
-                  fontSize: "clamp(44px,5vw,72px)",
+                  fontSize: "clamp(28px,3.2vw,46px)",
                   fontWeight: 800,
-                  lineHeight: 1.02,
-                  letterSpacing: "-2px",
+                  lineHeight: 1.08,
+                  letterSpacing: "-1px",
                   marginBottom: 24,
                 }}
               >
-                <span className="grad">Your Perfect</span>
+                <span
+                  className="grad"
+                  style={{ fontSize: "clamp(22px,2.4vw,34px)" }}
+                >
+                  Your Perfect
+                </span>
                 <br />
                 <span
                   style={{
@@ -1061,7 +1066,8 @@ function LandingPage({ onLogin, onRegister, onDoctorLogin }) {
                     WebkitBackgroundClip: "text",
                     WebkitTextFillColor: "transparent",
                     backgroundClip: "text",
-                    letterSpacing: "-1px",
+                    letterSpacing: "-0.5px",
+                    fontSize: "clamp(22px,2.4vw,34px)",
                   }}
                 >
                   Smile Starts Here.
@@ -1353,10 +1359,10 @@ function LandingPage({ onLogin, onRegister, onDoctorLogin }) {
             <h2
               style={{
                 fontFamily: "'Syne',sans-serif",
-                fontSize: "clamp(30px,4vw,48px)",
+                fontSize: "clamp(20px,2.5vw,30px)",
                 fontWeight: 800,
-                lineHeight: 1.08,
-                letterSpacing: "-1px",
+                lineHeight: 1.1,
+                letterSpacing: "-0.5px",
               }}
             >
               <span style={{ color: T.text }}>World-class care,</span>
@@ -1463,10 +1469,10 @@ function LandingPage({ onLogin, onRegister, onDoctorLogin }) {
             <h2
               style={{
                 fontFamily: "'Syne',sans-serif",
-                fontSize: "clamp(28px,4vw,46px)",
+                fontSize: "clamp(20px,2.5vw,30px)",
                 fontWeight: 800,
                 lineHeight: 1.1,
-                letterSpacing: "-1px",
+                letterSpacing: "-0.5px",
               }}
             >
               <span style={{ color: T.text }}>Confirmed appointment.</span>
@@ -1607,10 +1613,10 @@ function LandingPage({ onLogin, onRegister, onDoctorLogin }) {
             <h2
               style={{
                 fontFamily: "'Syne',sans-serif",
-                fontSize: "clamp(28px,4vw,46px)",
+                fontSize: "clamp(20px,2.5vw,30px)",
                 fontWeight: 800,
                 lineHeight: 1.1,
-                letterSpacing: "-1px",
+                letterSpacing: "-0.5px",
               }}
             >
               <span style={{ color: T.text }}>Real patients.</span>
@@ -1717,7 +1723,7 @@ function LandingPage({ onLogin, onRegister, onDoctorLogin }) {
                 <h3
                   style={{
                     fontFamily: "'Syne',sans-serif",
-                    fontSize: 22,
+                    fontSize: 16,
                     fontWeight: 800,
                     marginBottom: 8,
                   }}
@@ -1796,10 +1802,10 @@ function LandingPage({ onLogin, onRegister, onDoctorLogin }) {
             <h2
               style={{
                 fontFamily: "'Syne',sans-serif",
-                fontSize: "clamp(26px,3.5vw,40px)",
+                fontSize: "clamp(18px,2.2vw,26px)",
                 fontWeight: 800,
-                lineHeight: 1.1,
-                letterSpacing: "-1px",
+                lineHeight: 1.15,
+                letterSpacing: "-0.5px",
                 marginBottom: 36,
               }}
             >
@@ -1893,7 +1899,7 @@ function LandingPage({ onLogin, onRegister, onDoctorLogin }) {
               style={{
                 fontFamily: "'Syne',sans-serif",
                 fontWeight: 700,
-                fontSize: 20,
+                fontSize: 15,
                 marginBottom: 22,
               }}
               className="grad"
@@ -2006,30 +2012,64 @@ function LandingPage({ onLogin, onRegister, onDoctorLogin }) {
 }
 
 /* ══════════════════════════════════════════════════════════════════════
-   DRAGGABLE VOICE WIDGET  — fixed bottom-right, drag anywhere
+   DRAGGABLE VOICE CALL WIDGET
+   — Collapsed mic FAB in bottom-right, expands to full voice-call panel
+   — Header bar is the drag handle; panel body stays interactive
+   — Smooth spring drag with viewport clamping
 ══════════════════════════════════════════════════════════════════════ */
 function DraggableVoiceWidget() {
   const [open, setOpen] = useState(false);
-  const [listening, setListening] = useState(false);
-  // offset from bottom-right corner (positive = inward from edge)
-  const [offset, setOffset] = useState({ x: 28, y: 28 });
+  const [callActive, setCallActive] = useState(false);
+  const [callTime, setCallTime] = useState(0);
+  const [muted, setMuted] = useState(false);
+  const [messages, setMessages] = useState([
+    {
+      from: "sarah",
+      text: "Hi! I'm Sarah, your dental concierge. How can I help you today?",
+    },
+  ]);
+  const [inputVal, setInputVal] = useState("");
+
+  // Position: bottom-right offset from window edge
+  const [pos, setPos] = useState({ right: 28, bottom: 28 });
   const [dragging, setDragging] = useState(false);
   const dragRef = useRef(null);
+  const timerRef = useRef(null);
+  const messagesEndRef = useRef(null);
 
-  /* Convert offset-from-corner → actual screen position for pointer math */
-  const toScreen = () => ({
-    x: window.innerWidth - offset.x - 64,
-    y: window.innerHeight - offset.y - 64,
-  });
+  const waves = [
+    0.25, 0.5, 0.85, 1, 0.7, 0.9, 0.55, 0.4, 0.65, 0.3, 0.75, 0.5, 0.35, 0.6,
+  ];
 
-  const onPointerDown = (e) => {
+  /* Call timer */
+  useEffect(() => {
+    if (callActive) {
+      timerRef.current = setInterval(() => setCallTime((t) => t + 1), 1000);
+    } else {
+      clearInterval(timerRef.current);
+    }
+    return () => clearInterval(timerRef.current);
+  }, [callActive]);
+
+  /* Auto-scroll messages */
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
+
+  const formatTime = (s) =>
+    `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
+
+  /* Drag: only the header triggers drag */
+  const onHeaderPointerDown = (e) => {
     if (e.target.closest("[data-no-drag]")) return;
-    const screen = toScreen();
+    // Convert right/bottom → left/top for delta math
+    const screenX = window.innerWidth - pos.right - (open ? 320 : 64);
+    const screenY = window.innerHeight - pos.bottom - (open ? 480 : 64);
     dragRef.current = {
       startPX: e.clientX,
       startPY: e.clientY,
-      startOX: offset.x,
-      startOY: offset.y,
+      startR: pos.right,
+      startB: pos.bottom,
       moved: false,
     };
     setDragging(true);
@@ -2042,104 +2082,157 @@ function DraggableVoiceWidget() {
     const dx = e.clientX - dragRef.current.startPX;
     const dy = e.clientY - dragRef.current.startPY;
     if (Math.abs(dx) > 3 || Math.abs(dy) > 3) dragRef.current.moved = true;
-    // Moving right → decrease x offset; moving down → decrease y offset
-    const newX = Math.max(
-      12,
-      Math.min(window.innerWidth - 76, dragRef.current.startOX - dx),
+    const W = open ? 320 : 64,
+      H = open ? 480 : 64;
+    const newR = Math.max(
+      8,
+      Math.min(window.innerWidth - W - 8, dragRef.current.startR - dx),
     );
-    const newY = Math.max(
-      12,
-      Math.min(window.innerHeight - 76, dragRef.current.startOY - dy),
+    const newB = Math.max(
+      8,
+      Math.min(window.innerHeight - H - 8, dragRef.current.startB - dy),
     );
-    setOffset({ x: newX, y: newY });
+    setPos({ right: newR, bottom: newB });
   };
 
   const onPointerUp = () => {
-    if (dragRef.current && !dragRef.current.moved) setOpen((o) => !o);
+    if (dragRef.current && !dragRef.current.moved && !open) setOpen(true);
     dragRef.current = null;
     setDragging(false);
   };
 
-  const waves = [
-    0.3, 0.55, 0.88, 0.7, 0.45, 0.82, 0.38, 0.6, 0.42, 0.25, 0.65, 0.5,
-  ];
+  const startCall = () => {
+    setCallActive(true);
+    setCallTime(0);
+  };
+  const endCall = () => {
+    setCallActive(false);
+    setCallTime(0);
+    setMuted(false);
+  };
+
+  const sendMessage = () => {
+    const txt = inputVal.trim();
+    if (!txt) return;
+    setMessages((m) => [...m, { from: "user", text: txt }]);
+    setInputVal("");
+    setTimeout(() => {
+      setMessages((m) => [
+        ...m,
+        {
+          from: "sarah",
+          text: "I've noted that. Let me check availability for you right away!",
+        },
+      ]);
+    }, 1200);
+  };
 
   return (
     <div
-      onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
       style={{
         position: "fixed",
-        right: offset.x,
-        bottom: offset.y,
-        zIndex: 200,
-        cursor: dragging ? "grabbing" : "grab",
+        right: pos.right,
+        bottom: pos.bottom,
+        zIndex: 9999,
         userSelect: "none",
         touchAction: "none",
       }}
     >
-      {/* Expanded panel — opens above the button */}
+      {/* ── EXPANDED CALL PANEL ── */}
       <AnimatePresence>
         {open && (
           <motion.div
-            data-no-drag=""
-            initial={{ opacity: 0, scale: 0.88, y: 12 }}
+            initial={{ opacity: 0, scale: 0.85, y: 20 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.88, y: 12 }}
-            transition={{ duration: 0.2, ease: "easeOut" }}
+            exit={{ opacity: 0, scale: 0.85, y: 20 }}
+            transition={{ type: "spring", stiffness: 320, damping: 28 }}
             style={{
-              position: "absolute",
-              bottom: 72,
-              right: 0,
-              width: 300,
-              background: "#1d1d21",
+              width: 320,
+              background: "#16181f",
               border: `1px solid ${T.border}`,
               borderRadius: 20,
-              padding: "20px 20px 16px",
-              boxShadow: "0 24px 60px #00000070",
-              cursor: "default",
+              overflow: "hidden",
+              boxShadow: "0 32px 80px #00000090, 0 0 0 1px #ffffff08",
+              display: "flex",
+              flexDirection: "column",
             }}
           >
-            {/* Header */}
+            {/* ── DRAG HANDLE / HEADER ── */}
             <div
+              onPointerDown={onHeaderPointerDown}
               style={{
+                cursor: dragging ? "grabbing" : "grab",
+                padding: "14px 16px",
+                background: callActive
+                  ? `linear-gradient(135deg, ${T.accent}22, #16181f)`
+                  : "#1d1d21",
+                borderBottom: `1px solid ${T.border}`,
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "space-between",
-                marginBottom: 16,
+                flexShrink: 0,
               }}
             >
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                <div
-                  style={{
-                    width: 38,
-                    height: 38,
-                    background: `linear-gradient(135deg,${T.accent},${ACCENT_DARK})`,
-                    borderRadius: 11,
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    position: "relative",
-                    flexShrink: 0,
-                  }}
-                >
-                  <FaMicrophoneAlt style={{ color: "white", fontSize: 15 }} />
+                {/* Avatar with pulse */}
+                <div style={{ position: "relative", flexShrink: 0 }}>
                   <div
                     style={{
-                      position: "absolute",
-                      inset: -4,
-                      borderRadius: 15,
+                      width: 36,
+                      height: 36,
+                      borderRadius: 10,
+                      background: `linear-gradient(135deg,${T.accent},${T.accent}88)`,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
                     }}
                   >
-                    <div className="pulse-ring" />
+                    <FaMicrophoneAlt style={{ color: "white", fontSize: 14 }} />
                   </div>
+                  {callActive && (
+                    <>
+                      <div
+                        style={{
+                          position: "absolute",
+                          inset: -3,
+                          borderRadius: 13,
+                          border: `1.5px solid ${T.accent}`,
+                          animation: "pulse-ring 1.8s ease-out infinite",
+                        }}
+                      />
+                      <div
+                        style={{
+                          position: "absolute",
+                          inset: -3,
+                          borderRadius: 13,
+                          border: `1.5px solid ${T.accent}60`,
+                          animation: "pulse-ring 1.8s ease-out infinite",
+                          animationDelay: "0.6s",
+                        }}
+                      />
+                    </>
+                  )}
+                  {/* Online dot */}
+                  <span
+                    style={{
+                      position: "absolute",
+                      bottom: -1,
+                      right: -1,
+                      width: 10,
+                      height: 10,
+                      background: T.emerald,
+                      borderRadius: "50%",
+                      border: "2px solid #16181f",
+                    }}
+                  />
                 </div>
                 <div>
                   <p
                     style={{
                       fontFamily: "'Syne',sans-serif",
-                      fontSize: 15,
+                      fontSize: 13,
                       fontWeight: 800,
                       color: T.text,
                       lineHeight: 1,
@@ -2147,239 +2240,489 @@ function DraggableVoiceWidget() {
                   >
                     Sarah
                   </p>
-                  <div
+                  <p
                     style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 4,
-                      marginTop: 3,
+                      fontSize: 10,
+                      color: callActive ? T.accent : T.emerald,
+                      marginTop: 2,
+                      fontWeight: 600,
                     }}
                   >
-                    <span
-                      style={{
-                        width: 5,
-                        height: 5,
-                        background: T.emerald,
-                        borderRadius: "50%",
-                        display: "inline-block",
-                      }}
-                    />
-                    <span
-                      style={{
-                        color: T.emerald,
-                        fontSize: 9,
-                        fontWeight: 700,
-                        letterSpacing: ".1em",
-                      }}
-                    >
-                      LIVE · AI Concierge
-                    </span>
-                  </div>
+                    {callActive
+                      ? `● On call · ${formatTime(callTime)}`
+                      : "● Available now"}
+                  </p>
                 </div>
               </div>
-              <button
-                data-no-drag=""
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setOpen(false);
-                }}
-                style={{
-                  background: "none",
-                  border: "none",
-                  color: T.muted,
-                  cursor: "pointer",
-                  fontSize: 15,
-                  padding: "4px 6px",
-                  lineHeight: 1,
-                  borderRadius: 6,
-                }}
-              >
-                ✕
-              </button>
-            </div>
-
-            {/* Waveform */}
-            <div
-              style={{
-                background: T.surface,
-                borderRadius: 12,
-                padding: "12px 14px",
-                marginBottom: 12,
-              }}
-            >
+              {/* Header actions */}
               <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 2.5,
-                  justifyContent: "center",
-                  height: 36,
-                  marginBottom: 8,
-                }}
+                style={{ display: "flex", alignItems: "center", gap: 6 }}
+                data-no-drag=""
               >
-                {waves.map((h, i) => (
-                  <div
-                    key={i}
-                    style={{
-                      width: 3,
-                      height: listening ? h * 34 : 5,
-                      background: listening
-                        ? `linear-gradient(to top, ${T.accent}60, ${T.accent})`
-                        : `${T.border}`,
-                      borderRadius: 3,
-                      transition: "height 0.12s ease",
-                      animation: listening
-                        ? `float ${1.3 + i * 0.09}s ease-in-out infinite`
-                        : "none",
-                    }}
-                  />
-                ))}
-              </div>
-              <p
-                style={{ color: T.muted, fontSize: 10.5, textAlign: "center" }}
-              >
-                {listening ? (
-                  <span style={{ color: T.accent, fontWeight: 600 }}>
-                    Listening… speak now
-                  </span>
-                ) : (
-                  "Press mic to talk to Sarah"
-                )}
-              </p>
-            </div>
-
-            {/* Quick prompts */}
-            <div
-              style={{
-                display: "flex",
-                flexDirection: "column",
-                gap: 5,
-                marginBottom: 12,
-              }}
-            >
-              {[
-                '"Book a check-up"',
-                '"Cancel my appointment"',
-                '"I have tooth pain"',
-              ].map((s) => (
-                <button
-                  data-no-drag=""
-                  key={s}
+                {/* Drag grip indicator */}
+                <div
                   style={{
-                    background: T.card,
-                    border: `1px solid ${T.border}`,
-                    color: T.muted,
-                    fontSize: 11,
-                    padding: "7px 11px",
-                    borderRadius: 9,
-                    textAlign: "left",
-                    cursor: "pointer",
-                    transition: "all .15s",
-                    fontFamily: "'Space Grotesk',sans-serif",
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.borderColor = T.accent + "55";
-                    e.currentTarget.style.color = T.text;
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.borderColor = T.border;
-                    e.currentTarget.style.color = T.muted;
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: 3,
+                    padding: "4px 6px",
+                    opacity: 0.3,
                   }}
                 >
-                  {s}
+                  {[0, 1, 2].map((i) => (
+                    <div key={i} style={{ display: "flex", gap: 3 }}>
+                      <div
+                        style={{
+                          width: 3,
+                          height: 3,
+                          borderRadius: "50%",
+                          background: T.muted,
+                        }}
+                      />
+                      <div
+                        style={{
+                          width: 3,
+                          height: 3,
+                          borderRadius: "50%",
+                          background: T.muted,
+                        }}
+                      />
+                    </div>
+                  ))}
+                </div>
+                <button
+                  data-no-drag=""
+                  onClick={() => {
+                    setOpen(false);
+                    endCall();
+                  }}
+                  style={{
+                    background: "none",
+                    border: "none",
+                    color: T.muted,
+                    cursor: "pointer",
+                    padding: "4px 6px",
+                    fontSize: 13,
+                    lineHeight: 1,
+                    borderRadius: 6,
+                  }}
+                >
+                  ✕
                 </button>
-              ))}
+              </div>
             </div>
 
-            {/* Mic toggle button */}
-            <button
-              data-no-drag=""
-              onClick={(e) => {
-                e.stopPropagation();
-                setListening((l) => !l);
-              }}
-              style={{
-                width: "100%",
-                padding: "11px 0",
-                borderRadius: 11,
-                border: "none",
-                background: listening
-                  ? `linear-gradient(135deg,${T.accent},${ACCENT_DARK})`
-                  : `${T.accent}18`,
-                color: listening ? "white" : T.accent,
-                fontSize: 13,
-                fontWeight: 700,
-                cursor: "pointer",
-                fontFamily: "'Space Grotesk',sans-serif",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                gap: 8,
-                transition: "all .2s",
-              }}
-            >
-              <FaMicrophoneAlt style={{ fontSize: 12 }} />
-              {listening ? "Stop listening" : "Start speaking"}
-            </button>
+            {/* ── ACTIVE CALL VIEW ── */}
+            {callActive ? (
+              <div
+                style={{
+                  flex: 1,
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  padding: "28px 20px",
+                  gap: 20,
+                }}
+              >
+                {/* Big avatar */}
+                <div style={{ position: "relative" }}>
+                  <div
+                    style={{
+                      width: 80,
+                      height: 80,
+                      borderRadius: 22,
+                      background: `linear-gradient(135deg,${T.accent},${T.accent}88)`,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                    }}
+                  >
+                    <FaMicrophoneAlt style={{ color: "white", fontSize: 32 }} />
+                  </div>
+                  <div
+                    style={{
+                      position: "absolute",
+                      inset: -6,
+                      borderRadius: 28,
+                      border: `1.5px solid ${T.accent}50`,
+                      animation: "pulse-ring 2s ease-out infinite",
+                    }}
+                  />
+                  <div
+                    style={{
+                      position: "absolute",
+                      inset: -12,
+                      borderRadius: 34,
+                      border: `1px solid ${T.accent}20`,
+                      animation: "pulse-ring 2s ease-out infinite",
+                      animationDelay: "0.5s",
+                    }}
+                  />
+                </div>
+                <div style={{ textAlign: "center" }}>
+                  <p
+                    style={{
+                      fontFamily: "'Syne',sans-serif",
+                      fontSize: 18,
+                      fontWeight: 800,
+                      color: T.text,
+                    }}
+                  >
+                    Sarah AI
+                  </p>
+                  <p style={{ color: T.accent, fontSize: 12, marginTop: 4 }}>
+                    Call in progress · {formatTime(callTime)}
+                  </p>
+                </div>
+                {/* Live waveform */}
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 3,
+                    height: 40,
+                  }}
+                >
+                  {waves.map((h, i) => (
+                    <div
+                      key={i}
+                      style={{
+                        width: 3,
+                        borderRadius: 3,
+                        background: `linear-gradient(to top,${T.accent}40,${T.accent})`,
+                        height: muted ? 4 : h * 36,
+                        animation: muted
+                          ? "none"
+                          : `float ${1.2 + i * 0.08}s ease-in-out infinite`,
+                        transition: "height .1s",
+                      }}
+                    />
+                  ))}
+                </div>
+                {/* Call controls */}
+                <div
+                  style={{ display: "flex", gap: 14, alignItems: "center" }}
+                  data-no-drag=""
+                >
+                  <button
+                    onClick={() => setMuted((m) => !m)}
+                    style={{
+                      width: 48,
+                      height: 48,
+                      borderRadius: "50%",
+                      border: `1px solid ${muted ? T.accent + "60" : T.border}`,
+                      background: muted ? `${T.accent}18` : "#1d1d21",
+                      color: muted ? T.accent : T.muted,
+                      cursor: "pointer",
+                      fontSize: 16,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                    }}
+                  >
+                    {muted ? "🔇" : "🎙️"}
+                  </button>
+                  <button
+                    onClick={endCall}
+                    style={{
+                      width: 56,
+                      height: 56,
+                      borderRadius: "50%",
+                      border: "none",
+                      background: "#e5344a",
+                      color: "white",
+                      cursor: "pointer",
+                      fontSize: 18,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      boxShadow: "0 0 24px #e5344a55",
+                    }}
+                  >
+                    📵
+                  </button>
+                  <button
+                    style={{
+                      width: 48,
+                      height: 48,
+                      borderRadius: "50%",
+                      border: `1px solid ${T.border}`,
+                      background: "#1d1d21",
+                      color: T.muted,
+                      cursor: "pointer",
+                      fontSize: 16,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                    }}
+                  >
+                    🔈
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <>
+                {/* ── CHAT MESSAGES ── */}
+                <div
+                  style={{
+                    flex: 1,
+                    overflowY: "auto",
+                    padding: "14px 14px 8px",
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: 10,
+                    maxHeight: 260,
+                    minHeight: 200,
+                  }}
+                >
+                  {messages.map((msg, i) => (
+                    <div
+                      key={i}
+                      style={{
+                        display: "flex",
+                        justifyContent:
+                          msg.from === "user" ? "flex-end" : "flex-start",
+                        gap: 8,
+                        alignItems: "flex-end",
+                      }}
+                    >
+                      {msg.from === "sarah" && (
+                        <div
+                          style={{
+                            width: 24,
+                            height: 24,
+                            borderRadius: 7,
+                            background: `linear-gradient(135deg,${T.accent},${T.accent}88)`,
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            flexShrink: 0,
+                          }}
+                        >
+                          <FaMicrophoneAlt
+                            style={{ color: "white", fontSize: 9 }}
+                          />
+                        </div>
+                      )}
+                      <div
+                        style={{
+                          maxWidth: "78%",
+                          padding: "9px 12px",
+                          borderRadius:
+                            msg.from === "user"
+                              ? "14px 14px 4px 14px"
+                              : "14px 14px 14px 4px",
+                          background:
+                            msg.from === "user"
+                              ? `linear-gradient(135deg,${T.accent},${T.accent}cc)`
+                              : "#24262e",
+                          border:
+                            msg.from === "user"
+                              ? "none"
+                              : `1px solid ${T.border}`,
+                          fontSize: 12.5,
+                          lineHeight: 1.5,
+                          color: msg.from === "user" ? "white" : T.text,
+                        }}
+                      >
+                        {msg.text}
+                      </div>
+                    </div>
+                  ))}
+                  <div ref={messagesEndRef} />
+                </div>
 
-            <p
-              style={{
-                color: T.muted,
-                fontSize: 10,
-                textAlign: "center",
-                marginTop: 10,
-                opacity: 0.5,
-              }}
-            >
-              drag the mic • click to open / close
-            </p>
+                {/* ── QUICK PROMPTS ── */}
+                <div
+                  style={{
+                    padding: "0 12px 8px",
+                    display: "flex",
+                    gap: 6,
+                    overflowX: "auto",
+                  }}
+                  data-no-drag=""
+                >
+                  {["Book check-up", "Cancel visit", "Tooth pain"].map((s) => (
+                    <button
+                      key={s}
+                      data-no-drag=""
+                      onClick={() => {
+                        setMessages((m) => [...m, { from: "user", text: s }]);
+                        setTimeout(
+                          () =>
+                            setMessages((m) => [
+                              ...m,
+                              {
+                                from: "sarah",
+                                text: "On it! Let me pull up the available slots for you.",
+                              },
+                            ]),
+                          1000,
+                        );
+                      }}
+                      style={{
+                        whiteSpace: "nowrap",
+                        background: "#24262e",
+                        border: `1px solid ${T.border}`,
+                        color: T.muted,
+                        fontSize: 10.5,
+                        padding: "5px 10px",
+                        borderRadius: 20,
+                        cursor: "pointer",
+                        fontFamily: "'Space Grotesk',sans-serif",
+                        flexShrink: 0,
+                        transition: "all .15s",
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.borderColor = T.accent + "55";
+                        e.currentTarget.style.color = T.text;
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.borderColor = T.border;
+                        e.currentTarget.style.color = T.muted;
+                      }}
+                    >
+                      {s}
+                    </button>
+                  ))}
+                </div>
+
+                {/* ── TEXT INPUT ── */}
+                <div
+                  style={{
+                    padding: "10px 12px",
+                    borderTop: `1px solid ${T.border}`,
+                    display: "flex",
+                    gap: 8,
+                    alignItems: "center",
+                    flexShrink: 0,
+                  }}
+                  data-no-drag=""
+                >
+                  <input
+                    data-no-drag=""
+                    value={inputVal}
+                    onChange={(e) => setInputVal(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && sendMessage()}
+                    placeholder="Message Sarah…"
+                    style={{
+                      flex: 1,
+                      background: "#24262e",
+                      border: `1px solid ${T.border}`,
+                      borderRadius: 10,
+                      padding: "8px 12px",
+                      color: T.text,
+                      fontSize: 12,
+                      fontFamily: "'Space Grotesk',sans-serif",
+                      outline: "none",
+                    }}
+                  />
+                  <button
+                    data-no-drag=""
+                    onClick={sendMessage}
+                    style={{
+                      width: 34,
+                      height: 34,
+                      borderRadius: 10,
+                      background: `linear-gradient(135deg,${T.accent},${ACCENT_DARK})`,
+                      border: "none",
+                      color: "white",
+                      cursor: "pointer",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      fontSize: 13,
+                      flexShrink: 0,
+                    }}
+                  >
+                    ↑
+                  </button>
+                </div>
+
+                {/* ── CALL BUTTON ── */}
+                <div
+                  style={{ padding: "10px 12px 14px", flexShrink: 0 }}
+                  data-no-drag=""
+                >
+                  <button
+                    data-no-drag=""
+                    onClick={startCall}
+                    style={{
+                      width: "100%",
+                      padding: "11px 0",
+                      borderRadius: 12,
+                      border: "none",
+                      background: `linear-gradient(135deg,${T.accent},${ACCENT_DARK})`,
+                      color: "white",
+                      fontSize: 13,
+                      fontWeight: 700,
+                      cursor: "pointer",
+                      fontFamily: "'Space Grotesk',sans-serif",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: 8,
+                    }}
+                  >
+                    <FaMicrophoneAlt style={{ fontSize: 12 }} /> Start voice
+                    call with Sarah
+                  </button>
+                </div>
+              </>
+            )}
           </motion.div>
         )}
       </AnimatePresence>
 
-      {/* Floating mic button */}
-      <motion.div
-        animate={{ scale: dragging ? 0.9 : 1 }}
-        transition={{ duration: 0.1 }}
-        style={{
-          width: 60,
-          height: 60,
-          background: open
-            ? `linear-gradient(135deg,${T.accent},${ACCENT_DARK})`
-            : `#1d1d21ee`,
-          border: `1.5px solid ${open ? T.accent + "90" : T.border}`,
-          borderRadius: "50%",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          boxShadow: open
-            ? `0 0 32px ${T.accent}55, 0 8px 24px #00000060`
-            : "0 8px 32px #00000060",
-          position: "relative",
-          backdropFilter: "blur(12px)",
-        }}
-      >
-        {!open && (
-          <>
-            <div
-              className="pulse-ring"
-              style={{ borderColor: `${T.accent}50` }}
-            />
-            <div
-              className="pulse-ring"
-              style={{ borderColor: `${T.accent}25`, animationDelay: "0.8s" }}
-            />
-          </>
-        )}
-        <FaMicrophoneAlt
+      {/* ── COLLAPSED FAB ── */}
+      {!open && (
+        <motion.div
+          onPointerDown={onHeaderPointerDown}
+          animate={{ scale: dragging ? 0.9 : 1 }}
+          transition={{ duration: 0.1 }}
           style={{
-            color: open ? "white" : T.accent,
-            fontSize: 20,
+            width: 60,
+            height: 60,
+            background: `linear-gradient(135deg,${T.accent},${ACCENT_DARK})`,
+            borderRadius: "50%",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            boxShadow: `0 0 28px ${T.accent}55, 0 8px 32px #00000070`,
+            cursor: dragging ? "grabbing" : "grab",
             position: "relative",
-            zIndex: 1,
           }}
-        />
-      </motion.div>
+        >
+          <div
+            style={{
+              position: "absolute",
+              inset: -4,
+              borderRadius: "50%",
+              border: `1.5px solid ${T.accent}50`,
+              animation: "pulse-ring 2s ease-out infinite",
+            }}
+          />
+          <div
+            style={{
+              position: "absolute",
+              inset: -4,
+              borderRadius: "50%",
+              border: `1px solid ${T.accent}25`,
+              animation: "pulse-ring 2s ease-out infinite",
+              animationDelay: "0.8s",
+            }}
+          />
+          <FaMicrophoneAlt
+            style={{
+              color: "white",
+              fontSize: 20,
+              position: "relative",
+              zIndex: 1,
+            }}
+          />
+        </motion.div>
+      )}
     </div>
   );
 }
