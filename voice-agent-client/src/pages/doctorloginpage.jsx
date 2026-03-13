@@ -1,160 +1,560 @@
-import React, { useState } from 'react';
-import { motion } from 'framer-motion';
+import React, { useState } from "react";
+import { motion } from "framer-motion";
 import {
-  FaTooth, FaEnvelope, FaLock, FaEye, FaEyeSlash,
-  FaArrowLeft, FaUserMd, FaCalendarCheck, FaUsers,
-  FaBell, FaUserPlus, FaArrowRight
-} from 'react-icons/fa';
+  FaTooth,
+  FaEnvelope,
+  FaLock,
+  FaEye,
+  FaEyeSlash,
+  FaArrowLeft,
+  FaArrowRight,
+  FaUserMd,
+  FaCalendarCheck,
+  FaUsers,
+  FaBell,
+  FaUserPlus,
+} from "react-icons/fa";
 
-const API = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+const API = import.meta.env.VITE_API_URL || "http://localhost:5000";
 
-export default function DoctorLogin({ onSuccess, onSwitchToPatient, onSwitchToRegister }) {
-  const [form, setForm]         = useState({ email: '', password: '' });
+/* shared focus handlers — identical to PatientLogin & DoctorRegister */
+const focusIn = (e) => {
+  e.target.style.borderColor = "#fd356d";
+  e.target.style.boxShadow = "0 0 0 3px rgba(253,53,109,0.12)";
+};
+const focusOut = (e) => {
+  e.target.style.borderColor = "#e5e7eb";
+  e.target.style.boxShadow = "none";
+};
+
+export default function DoctorLogin({
+  onSuccess,
+  onSwitchToPatient,
+  onSwitchToRegister,
+}) {
+  const [form, setForm] = useState({ email: "", password: "" });
   const [showPass, setShowPass] = useState(false);
-  const [loading, setLoading]   = useState(false);
-  const [error, setError]       = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
 
-  const handle = e => setForm(f => ({ ...f, [e.target.name]: e.target.value }));
+  const handle = (e) =>
+    setForm((f) => ({ ...f, [e.target.name]: e.target.value }));
 
-  const handleSubmit = async e => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
-    setError('');
+    setError("");
     try {
-      const res  = await fetch(`${API}/api/auth/doctor/login`, {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify(form),
+      const res = await fetch(`${API}/api/auth/doctor/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(form),
       });
       const data = await res.json();
-      if (!data.success) { setError(data.error || 'Invalid credentials'); return; }
-      localStorage.setItem('token', data.token);
-      localStorage.setItem('user', JSON.stringify(data.user));
+      if (!data.success) {
+        setError(data.error || "Invalid credentials");
+        return;
+      }
+      localStorage.setItem("token", data.token);
+      localStorage.setItem("user", JSON.stringify(data.user));
       if (onSuccess) onSuccess(data.user);
     } catch {
-      setError('Could not connect to server. Please try again.');
+      setError("Could not connect to server. Please try again.");
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-emerald-50 via-white to-emerald-50 flex items-center justify-center p-4">
-      <div className="w-full max-w-5xl grid md:grid-cols-2 gap-0 rounded-3xl shadow-2xl overflow-hidden">
-
-        {/* ── Left panel ─────────────────────────────────────────────── */}
+    <div
+      style={{
+        minHeight: "100vh",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: 16,
+        background:
+          "linear-gradient(135deg, #fff0f4 0%, #ffffff 50%, #fff0f4 100%)",
+      }}
+    >
+      <div
+        style={{
+          width: "100%",
+          maxWidth: 1020,
+          display: "grid",
+          gridTemplateColumns: "1fr 1fr",
+          borderRadius: 28,
+          overflow: "hidden",
+          boxShadow: "0 24px 80px rgba(0,0,0,0.18)",
+        }}
+      >
+        {/* ── LEFT — dental photo ── */}
         <motion.div
           initial={{ opacity: 0, x: -40 }}
           animate={{ opacity: 1, x: 0 }}
           transition={{ duration: 0.5 }}
-          className="bg-gradient-to-br from-emerald-600 to-teal-500 p-10 text-white flex flex-col justify-between"
+          style={{
+            position: "relative",
+            overflow: "hidden",
+            minHeight: 580,
+            display: "flex",
+            flexDirection: "column",
+          }}
         >
-          <div>
-            {/* Logo */}
-            <div className="flex items-center gap-3 mb-10">
-              <div className="bg-white/20 p-3 rounded-2xl">
-                <FaTooth className="text-white text-3xl" />
+          {/* Real dental photo */}
+          <div
+            style={{
+              position: "absolute",
+              inset: 0,
+              backgroundImage: `url('https://images.unsplash.com/photo-1588776814546-1ffbb172c69d?w=800&q=80')`,
+              backgroundSize: "cover",
+              backgroundPosition: "center",
+              zIndex: 0,
+            }}
+          />
+
+          {/* Dark veil */}
+          <div
+            style={{
+              position: "absolute",
+              inset: 0,
+              background: "rgba(0,0,0,0.42)",
+              zIndex: 1,
+            }}
+          />
+
+          {/* Pink tint at bottom */}
+          <div
+            style={{
+              position: "absolute",
+              bottom: 0,
+              left: 0,
+              right: 0,
+              height: "40%",
+              background:
+                "linear-gradient(to top, rgba(253,53,109,0.28), transparent)",
+              zIndex: 2,
+            }}
+          />
+
+          {/* Decorative blobs */}
+          <div
+            style={{
+              position: "absolute",
+              width: 220,
+              height: 220,
+              borderRadius: "50%",
+              top: -60,
+              right: -60,
+              background: "rgba(255,255,255,0.07)",
+              filter: "blur(2px)",
+              zIndex: 2,
+            }}
+          />
+          <div
+            style={{
+              position: "absolute",
+              width: 160,
+              height: 160,
+              borderRadius: "50%",
+              bottom: 80,
+              left: -50,
+              background: "rgba(255,255,255,0.05)",
+              filter: "blur(2px)",
+              zIndex: 2,
+            }}
+          />
+
+          {/* Content */}
+          <div
+            style={{
+              position: "relative",
+              zIndex: 3,
+              padding: 40,
+              flex: 1,
+              display: "flex",
+              flexDirection: "column",
+              justifyContent: "space-between",
+              color: "white",
+            }}
+          >
+            <div>
+              {/* Logo */}
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 12,
+                  marginBottom: 36,
+                }}
+              >
+                <div
+                  style={{
+                    padding: 12,
+                    borderRadius: 16,
+                    background: "rgba(255,255,255,0.18)",
+                    backdropFilter: "blur(8px)",
+                  }}
+                >
+                  <FaTooth style={{ fontSize: 26, color: "white" }} />
+                </div>
+                <div>
+                  <h1
+                    style={{
+                      fontSize: 20,
+                      fontWeight: 800,
+                      textShadow: "0 1px 8px rgba(0,0,0,0.3)",
+                      margin: 0,
+                    }}
+                  >
+                    SmileCare Dental
+                  </h1>
+                  <p
+                    style={{
+                      color: "rgba(255,255,255,0.75)",
+                      fontSize: 12,
+                      margin: 0,
+                    }}
+                  >
+                    Doctor Portal
+                  </p>
+                </div>
+              </div>
+
+              <h2
+                style={{
+                  fontSize: 34,
+                  fontWeight: 800,
+                  lineHeight: 1.2,
+                  marginBottom: 14,
+                  textShadow: "0 2px 12px rgba(0,0,0,0.25)",
+                  margin: "0 0 14px 0",
+                }}
+              >
+                Welcome back,
+                <br />
+                <span style={{ color: "rgba(255,255,255,0.88)" }}>Doctor.</span>
+              </h2>
+              <p
+                style={{
+                  fontSize: 15,
+                  color: "rgba(255,255,255,0.82)",
+                  marginBottom: 28,
+                  lineHeight: 1.7,
+                }}
+              >
+                Sign in to view your appointments, patient list, and get
+                notified when Sarah books a new slot with you.
+              </p>
+
+              {/* Feature list */}
+              <div
+                style={{ display: "flex", flexDirection: "column", gap: 16 }}
+              >
+                {[
+                  {
+                    icon: <FaCalendarCheck />,
+                    title: "Appointment Dashboard",
+                    desc: "View all your upcoming appointments",
+                  },
+                  {
+                    icon: <FaUsers />,
+                    title: "Patient Management",
+                    desc: "Access patient records easily",
+                  },
+                  {
+                    icon: <FaBell />,
+                    title: "Instant Notifications",
+                    desc: "Email alerts for every new booking",
+                  },
+                  {
+                    icon: <FaUserMd />,
+                    title: "Profile Management",
+                    desc: "Update your availability & bio",
+                  },
+                ].map((item, i) => (
+                  <div
+                    key={i}
+                    style={{
+                      display: "flex",
+                      alignItems: "flex-start",
+                      gap: 14,
+                    }}
+                  >
+                    <div
+                      style={{
+                        width: 38,
+                        height: 38,
+                        background: "rgba(255,255,255,0.18)",
+                        backdropFilter: "blur(6px)",
+                        borderRadius: 11,
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        flexShrink: 0,
+                      }}
+                    >
+                      <span style={{ color: "white", fontSize: 14 }}>
+                        {item.icon}
+                      </span>
+                    </div>
+                    <div>
+                      <p
+                        style={{
+                          fontWeight: 600,
+                          fontSize: 13,
+                          margin: 0,
+                          lineHeight: 1,
+                        }}
+                      >
+                        {item.title}
+                      </p>
+                      <p
+                        style={{
+                          color: "rgba(255,255,255,0.65)",
+                          fontSize: 12,
+                          margin: "4px 0 0 0",
+                        }}
+                      >
+                        {item.desc}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Switch to patient */}
+            <div
+              style={{
+                marginTop: 32,
+                borderRadius: 18,
+                padding: 16,
+                display: "flex",
+                alignItems: "center",
+                gap: 12,
+                background: "rgba(255,255,255,0.12)",
+                backdropFilter: "blur(10px)",
+                border: "1px solid rgba(255,255,255,0.15)",
+              }}
+            >
+              <div
+                style={{
+                  width: 40,
+                  height: 40,
+                  borderRadius: 12,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  fontSize: 20,
+                  flexShrink: 0,
+                  background: "rgba(255,255,255,0.2)",
+                  backdropFilter: "blur(6px)",
+                }}
+              >
+                👤
               </div>
               <div>
-                <h1 className="text-2xl font-bold">SmileCare Dental</h1>
-                <p className="text-white/70 text-sm">Doctor Portal</p>
+                <p
+                  style={{
+                    color: "rgba(255,255,255,0.7)",
+                    fontSize: 13,
+                    margin: "0 0 2px 0",
+                  }}
+                >
+                  Are you a patient?
+                </p>
+                <button
+                  onClick={onSwitchToPatient}
+                  style={{
+                    color: "white",
+                    fontWeight: 600,
+                    fontSize: 13,
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 5,
+                    background: "none",
+                    border: "none",
+                    cursor: "pointer",
+                    padding: 0,
+                  }}
+                >
+                  <FaArrowLeft style={{ fontSize: 10 }} /> Patient Sign In
+                </button>
               </div>
-            </div>
-
-            <h2 className="text-4xl font-bold mb-4 leading-tight">
-              Doctor Portal<br />
-              <span className="text-white/80">Manage your schedule.</span>
-            </h2>
-            <p className="text-white/80 text-lg mb-8">
-              Sign in to view your appointments, patient list, and get notified instantly when Sarah books a new appointment with you.
-            </p>
-
-            {/* Features */}
-            <div className="space-y-5">
-              {[
-                { icon: <FaCalendarCheck />, title: 'Appointment Dashboard',  desc: 'View all your upcoming appointments' },
-                { icon: <FaUsers />,         title: 'Patient Management',     desc: 'Access patient records easily' },
-                { icon: <FaBell />,          title: 'Instant Notifications',  desc: 'Email alerts for every new booking' },
-                { icon: <FaUserMd />,        title: 'Profile Management',     desc: 'Update your availability & bio' },
-              ].map((item, i) => (
-                <div key={i} className="flex items-start gap-4">
-                  <div className="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center flex-shrink-0 mt-0.5">
-                    {item.icon}
-                  </div>
-                  <div>
-                    <p className="font-semibold text-sm">{item.title}</p>
-                    <p className="text-white/70 text-xs">{item.desc}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Switch to patient */}
-          <div className="mt-10 bg-white/10 rounded-2xl p-4 flex items-center gap-3">
-            <div className="text-2xl">👤</div>
-            <div>
-              <p className="text-white/70 text-sm">Are you a patient?</p>
-              <button onClick={onSwitchToPatient}
-                className="text-white font-semibold hover:underline text-sm flex items-center gap-1">
-                <FaArrowLeft className="text-xs" /> Patient Sign In
-              </button>
             </div>
           </div>
         </motion.div>
 
-        {/* ── Right panel ────────────────────────────────────────────── */}
+        {/* ── RIGHT — white form ── */}
         <motion.div
           initial={{ opacity: 0, x: 40 }}
           animate={{ opacity: 1, x: 0 }}
           transition={{ duration: 0.5 }}
-          className="bg-white p-10 flex flex-col justify-center"
+          style={{
+            background: "#fff",
+            padding: "40px",
+            display: "flex",
+            flexDirection: "column",
+            justifyContent: "center",
+          }}
         >
           {/* Doctor badge */}
-          <div className="flex items-center gap-3 mb-8">
-            <div className="w-14 h-14 bg-gradient-to-br from-emerald-500 to-teal-400 rounded-2xl flex items-center justify-center shadow-lg">
-              <FaUserMd className="text-white text-2xl" />
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 14,
+              marginBottom: 28,
+            }}
+          >
+            <div
+              style={{
+                width: 56,
+                height: 56,
+                background: "linear-gradient(135deg, #fd356d, #b8184a)",
+                borderRadius: 18,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                boxShadow: "0 8px 24px rgba(253,53,109,0.35)",
+                flexShrink: 0,
+              }}
+            >
+              <FaUserMd style={{ color: "white", fontSize: 22 }} />
             </div>
             <div>
-              <h3 className="text-2xl font-bold text-gray-900">Doctor Sign In</h3>
-              <p className="text-gray-500 text-sm">Access your doctor dashboard</p>
+              <h3
+                style={{
+                  fontSize: 26,
+                  fontWeight: 800,
+                  color: "#111827",
+                  margin: 0,
+                }}
+              >
+                Doctor Sign In
+              </h3>
+              <p style={{ color: "#6b7280", fontSize: 14, margin: 0 }}>
+                Access your doctor dashboard
+              </p>
             </div>
           </div>
 
-          <form onSubmit={handleSubmit} className="space-y-5">
+          <form
+            onSubmit={handleSubmit}
+            style={{ display: "flex", flexDirection: "column", gap: 20 }}
+          >
             {/* Email */}
             <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-1.5">
+              <label
+                style={{
+                  display: "block",
+                  fontSize: 13,
+                  fontWeight: 500,
+                  color: "#374151",
+                  marginBottom: 6,
+                }}
+              >
                 Email Address
               </label>
-              <div className="relative">
-                <FaEnvelope className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 text-sm" />
+              <div style={{ position: "relative" }}>
+                <FaEnvelope
+                  style={{
+                    position: "absolute",
+                    left: 14,
+                    top: "50%",
+                    transform: "translateY(-50%)",
+                    color: "#9ca3af",
+                    fontSize: 13,
+                  }}
+                />
                 <input
-                  type="email" name="email" required
-                  value={form.email} onChange={handle}
+                  type="email"
+                  name="email"
+                  required
+                  value={form.email}
+                  onChange={handle}
                   placeholder="doctor@smilecaredental.com"
-                  className="w-full pl-11 pr-4 py-3 border border-gray-200 rounded-xl text-sm
-                             focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition"
+                  onFocus={focusIn}
+                  onBlur={focusOut}
+                  style={{
+                    width: "100%",
+                    padding: "12px 14px 12px 40px",
+                    background: "#fff",
+                    border: "1px solid #e5e7eb",
+                    borderRadius: 12,
+                    color: "#111827",
+                    fontSize: 14,
+                    outline: "none",
+                    fontFamily: "inherit",
+                    boxSizing: "border-box",
+                    transition: "border-color .2s, box-shadow .2s",
+                  }}
                 />
               </div>
             </div>
 
             {/* Password */}
             <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-1.5">
+              <label
+                style={{
+                  display: "block",
+                  fontSize: 13,
+                  fontWeight: 500,
+                  color: "#374151",
+                  marginBottom: 6,
+                }}
+              >
                 Password
               </label>
-              <div className="relative">
-                <FaLock className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 text-sm" />
-                <input
-                  type={showPass ? 'text' : 'password'} name="password" required
-                  value={form.password} onChange={handle}
-                  placeholder="••••••••"
-                  className="w-full pl-11 pr-12 py-3 border border-gray-200 rounded-xl text-sm
-                             focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition"
+              <div style={{ position: "relative" }}>
+                <FaLock
+                  style={{
+                    position: "absolute",
+                    left: 14,
+                    top: "50%",
+                    transform: "translateY(-50%)",
+                    color: "#9ca3af",
+                    fontSize: 12,
+                  }}
                 />
-                <button type="button" onClick={() => setShowPass(s => !s)}
-                  className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition">
+                <input
+                  type={showPass ? "text" : "password"}
+                  name="password"
+                  required
+                  value={form.password}
+                  onChange={handle}
+                  placeholder="••••••••"
+                  onFocus={focusIn}
+                  onBlur={focusOut}
+                  style={{
+                    width: "100%",
+                    padding: "12px 44px 12px 40px",
+                    background: "#fff",
+                    border: "1px solid #e5e7eb",
+                    borderRadius: 12,
+                    color: "#111827",
+                    fontSize: 14,
+                    outline: "none",
+                    fontFamily: "inherit",
+                    boxSizing: "border-box",
+                    transition: "border-color .2s, box-shadow .2s",
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPass((s) => !s)}
+                  style={{
+                    position: "absolute",
+                    right: 14,
+                    top: "50%",
+                    transform: "translateY(-50%)",
+                    color: "#9ca3af",
+                    background: "none",
+                    border: "none",
+                    cursor: "pointer",
+                  }}
+                >
                   {showPass ? <FaEyeSlash /> : <FaEye />}
                 </button>
               </div>
@@ -165,7 +565,14 @@ export default function DoctorLogin({ onSuccess, onSwitchToPatient, onSwitchToRe
               <motion.div
                 initial={{ opacity: 0, y: -8 }}
                 animate={{ opacity: 1, y: 0 }}
-                className="bg-red-50 border border-red-200 text-red-600 text-sm rounded-xl px-4 py-3 flex items-center gap-2"
+                style={{
+                  background: "#fff0f4",
+                  border: "1px solid #fecdd6",
+                  color: "#be123c",
+                  fontSize: 13,
+                  borderRadius: 12,
+                  padding: "11px 15px",
+                }}
               >
                 ⚠️ {error}
               </motion.div>
@@ -173,45 +580,128 @@ export default function DoctorLogin({ onSuccess, onSwitchToPatient, onSwitchToRe
 
             {/* Submit */}
             <button
-              type="submit" disabled={loading}
-              className="w-full bg-gradient-to-r from-emerald-500 to-teal-400 text-white py-3.5 rounded-xl
-                         font-semibold hover:shadow-lg transform hover:scale-[1.02] transition-all duration-300
-                         disabled:opacity-60 disabled:scale-100 flex items-center justify-center gap-2"
+              type="submit"
+              disabled={loading}
+              style={{
+                width: "100%",
+                background: loading
+                  ? "#d1d5db"
+                  : "linear-gradient(135deg, #fd356d, #b8184a)",
+                color: "white",
+                padding: "13px 0",
+                borderRadius: 14,
+                fontWeight: 700,
+                fontSize: 15,
+                cursor: loading ? "not-allowed" : "pointer",
+                border: "none",
+                fontFamily: "inherit",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 8,
+                boxShadow: loading
+                  ? "none"
+                  : "0 4px 20px rgba(253,53,109,0.35)",
+                transition: "opacity .2s",
+              }}
+              onMouseEnter={(e) => {
+                if (!loading) e.currentTarget.style.opacity = ".9";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.opacity = "1";
+              }}
             >
               {loading ? (
                 <>
-                  <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  <span
+                    style={{
+                      width: 16,
+                      height: 16,
+                      border: "2px solid rgba(255,255,255,0.3)",
+                      borderTopColor: "white",
+                      borderRadius: "50%",
+                      display: "inline-block",
+                    }}
+                  />
                   Signing in...
                 </>
               ) : (
-                'Sign In to Dashboard'
+                "Sign In to Dashboard"
               )}
             </button>
           </form>
 
           {/* Divider */}
-          <div className="flex items-center gap-3 my-6">
-            <div className="flex-1 h-px bg-gray-200" />
-            <span className="text-xs text-gray-400">New to SmileCare?</span>
-            <div className="flex-1 h-px bg-gray-200" />
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 12,
+              margin: "24px 0",
+            }}
+          >
+            <div style={{ flex: 1, height: 1, background: "#f3f4f6" }} />
+            <span style={{ fontSize: 12, color: "#9ca3af" }}>
+              New to SmileCare?
+            </span>
+            <div style={{ flex: 1, height: 1, background: "#f3f4f6" }} />
           </div>
 
           {/* Register CTA */}
           <button
             onClick={onSwitchToRegister}
-            className="w-full border-2 border-emerald-400 text-emerald-600 py-3.5 rounded-xl font-semibold
-                       hover:bg-emerald-50 hover:border-emerald-500 transition-all duration-300
-                       flex items-center justify-center gap-2"
+            style={{
+              width: "100%",
+              background: "#fff",
+              border: "1.5px solid #fecdd6",
+              color: "#fd356d",
+              padding: "13px 0",
+              borderRadius: 14,
+              fontWeight: 700,
+              fontSize: 14,
+              cursor: "pointer",
+              fontFamily: "inherit",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 8,
+              transition: "all .2s",
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = "#fff0f4";
+              e.currentTarget.style.borderColor = "#fd356d";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = "#fff";
+              e.currentTarget.style.borderColor = "#fecdd6";
+            }}
           >
-            <FaUserPlus /> Create Doctor Account <FaArrowRight className="text-xs" />
+            <FaUserPlus style={{ fontSize: 13 }} /> Create Doctor Account{" "}
+            <FaArrowRight style={{ fontSize: 11 }} />
           </button>
 
-          <p className="text-center text-xs text-gray-400 mt-4">
-            Register your profile so patients can find and book with you through Sarah.
+          <p
+            style={{
+              textAlign: "center",
+              color: "#9ca3af",
+              fontSize: 12,
+              margin: "12px 0 0 0",
+            }}
+          >
+            Register your profile so patients can find and book with you through
+            Sarah.
           </p>
 
-          {/* Security note */}
-          <div className="mt-6 pt-6 border-t border-gray-100 flex items-center justify-center gap-2 text-xs text-gray-400">
+          <div
+            style={{
+              marginTop: 24,
+              paddingTop: 20,
+              borderTop: "1px solid #f3f4f6",
+              textAlign: "center",
+              color: "#9ca3af",
+              fontSize: 12,
+            }}
+          >
             🔒 Secure doctor portal — JWT authenticated
           </div>
         </motion.div>
