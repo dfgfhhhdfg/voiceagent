@@ -2006,6 +2006,385 @@ function LandingPage({ onLogin, onRegister, onDoctorLogin }) {
 }
 
 /* ══════════════════════════════════════════════════════════════════════
+   DRAGGABLE VOICE WIDGET  — fixed bottom-right, drag anywhere
+══════════════════════════════════════════════════════════════════════ */
+function DraggableVoiceWidget() {
+  const [open, setOpen] = useState(false);
+  const [listening, setListening] = useState(false);
+  // offset from bottom-right corner (positive = inward from edge)
+  const [offset, setOffset] = useState({ x: 28, y: 28 });
+  const [dragging, setDragging] = useState(false);
+  const dragRef = useRef(null);
+
+  /* Convert offset-from-corner → actual screen position for pointer math */
+  const toScreen = () => ({
+    x: window.innerWidth - offset.x - 64,
+    y: window.innerHeight - offset.y - 64,
+  });
+
+  const onPointerDown = (e) => {
+    if (e.target.closest("[data-no-drag]")) return;
+    const screen = toScreen();
+    dragRef.current = {
+      startPX: e.clientX,
+      startPY: e.clientY,
+      startOX: offset.x,
+      startOY: offset.y,
+      moved: false,
+    };
+    setDragging(true);
+    e.currentTarget.setPointerCapture(e.pointerId);
+    e.preventDefault();
+  };
+
+  const onPointerMove = (e) => {
+    if (!dragRef.current) return;
+    const dx = e.clientX - dragRef.current.startPX;
+    const dy = e.clientY - dragRef.current.startPY;
+    if (Math.abs(dx) > 3 || Math.abs(dy) > 3) dragRef.current.moved = true;
+    // Moving right → decrease x offset; moving down → decrease y offset
+    const newX = Math.max(
+      12,
+      Math.min(window.innerWidth - 76, dragRef.current.startOX - dx),
+    );
+    const newY = Math.max(
+      12,
+      Math.min(window.innerHeight - 76, dragRef.current.startOY - dy),
+    );
+    setOffset({ x: newX, y: newY });
+  };
+
+  const onPointerUp = () => {
+    if (dragRef.current && !dragRef.current.moved) setOpen((o) => !o);
+    dragRef.current = null;
+    setDragging(false);
+  };
+
+  const waves = [
+    0.3, 0.55, 0.88, 0.7, 0.45, 0.82, 0.38, 0.6, 0.42, 0.25, 0.65, 0.5,
+  ];
+
+  return (
+    <div
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      style={{
+        position: "fixed",
+        right: offset.x,
+        bottom: offset.y,
+        zIndex: 200,
+        cursor: dragging ? "grabbing" : "grab",
+        userSelect: "none",
+        touchAction: "none",
+      }}
+    >
+      {/* Expanded panel — opens above the button */}
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            data-no-drag=""
+            initial={{ opacity: 0, scale: 0.88, y: 12 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.88, y: 12 }}
+            transition={{ duration: 0.2, ease: "easeOut" }}
+            style={{
+              position: "absolute",
+              bottom: 72,
+              right: 0,
+              width: 300,
+              background: "#1d1d21",
+              border: `1px solid ${T.border}`,
+              borderRadius: 20,
+              padding: "20px 20px 16px",
+              boxShadow: "0 24px 60px #00000070",
+              cursor: "default",
+            }}
+          >
+            {/* Header */}
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                marginBottom: 16,
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <div
+                  style={{
+                    width: 38,
+                    height: 38,
+                    background: `linear-gradient(135deg,${T.accent},${ACCENT_DARK})`,
+                    borderRadius: 11,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    position: "relative",
+                    flexShrink: 0,
+                  }}
+                >
+                  <FaMicrophoneAlt style={{ color: "white", fontSize: 15 }} />
+                  <div
+                    style={{
+                      position: "absolute",
+                      inset: -4,
+                      borderRadius: 15,
+                    }}
+                  >
+                    <div className="pulse-ring" />
+                  </div>
+                </div>
+                <div>
+                  <p
+                    style={{
+                      fontFamily: "'Syne',sans-serif",
+                      fontSize: 15,
+                      fontWeight: 800,
+                      color: T.text,
+                      lineHeight: 1,
+                    }}
+                  >
+                    Sarah
+                  </p>
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 4,
+                      marginTop: 3,
+                    }}
+                  >
+                    <span
+                      style={{
+                        width: 5,
+                        height: 5,
+                        background: T.emerald,
+                        borderRadius: "50%",
+                        display: "inline-block",
+                      }}
+                    />
+                    <span
+                      style={{
+                        color: T.emerald,
+                        fontSize: 9,
+                        fontWeight: 700,
+                        letterSpacing: ".1em",
+                      }}
+                    >
+                      LIVE · AI Concierge
+                    </span>
+                  </div>
+                </div>
+              </div>
+              <button
+                data-no-drag=""
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setOpen(false);
+                }}
+                style={{
+                  background: "none",
+                  border: "none",
+                  color: T.muted,
+                  cursor: "pointer",
+                  fontSize: 15,
+                  padding: "4px 6px",
+                  lineHeight: 1,
+                  borderRadius: 6,
+                }}
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Waveform */}
+            <div
+              style={{
+                background: T.surface,
+                borderRadius: 12,
+                padding: "12px 14px",
+                marginBottom: 12,
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 2.5,
+                  justifyContent: "center",
+                  height: 36,
+                  marginBottom: 8,
+                }}
+              >
+                {waves.map((h, i) => (
+                  <div
+                    key={i}
+                    style={{
+                      width: 3,
+                      height: listening ? h * 34 : 5,
+                      background: listening
+                        ? `linear-gradient(to top, ${T.accent}60, ${T.accent})`
+                        : `${T.border}`,
+                      borderRadius: 3,
+                      transition: "height 0.12s ease",
+                      animation: listening
+                        ? `float ${1.3 + i * 0.09}s ease-in-out infinite`
+                        : "none",
+                    }}
+                  />
+                ))}
+              </div>
+              <p
+                style={{ color: T.muted, fontSize: 10.5, textAlign: "center" }}
+              >
+                {listening ? (
+                  <span style={{ color: T.accent, fontWeight: 600 }}>
+                    Listening… speak now
+                  </span>
+                ) : (
+                  "Press mic to talk to Sarah"
+                )}
+              </p>
+            </div>
+
+            {/* Quick prompts */}
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: 5,
+                marginBottom: 12,
+              }}
+            >
+              {[
+                '"Book a check-up"',
+                '"Cancel my appointment"',
+                '"I have tooth pain"',
+              ].map((s) => (
+                <button
+                  data-no-drag=""
+                  key={s}
+                  style={{
+                    background: T.card,
+                    border: `1px solid ${T.border}`,
+                    color: T.muted,
+                    fontSize: 11,
+                    padding: "7px 11px",
+                    borderRadius: 9,
+                    textAlign: "left",
+                    cursor: "pointer",
+                    transition: "all .15s",
+                    fontFamily: "'Space Grotesk',sans-serif",
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.borderColor = T.accent + "55";
+                    e.currentTarget.style.color = T.text;
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.borderColor = T.border;
+                    e.currentTarget.style.color = T.muted;
+                  }}
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
+
+            {/* Mic toggle button */}
+            <button
+              data-no-drag=""
+              onClick={(e) => {
+                e.stopPropagation();
+                setListening((l) => !l);
+              }}
+              style={{
+                width: "100%",
+                padding: "11px 0",
+                borderRadius: 11,
+                border: "none",
+                background: listening
+                  ? `linear-gradient(135deg,${T.accent},${ACCENT_DARK})`
+                  : `${T.accent}18`,
+                color: listening ? "white" : T.accent,
+                fontSize: 13,
+                fontWeight: 700,
+                cursor: "pointer",
+                fontFamily: "'Space Grotesk',sans-serif",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 8,
+                transition: "all .2s",
+              }}
+            >
+              <FaMicrophoneAlt style={{ fontSize: 12 }} />
+              {listening ? "Stop listening" : "Start speaking"}
+            </button>
+
+            <p
+              style={{
+                color: T.muted,
+                fontSize: 10,
+                textAlign: "center",
+                marginTop: 10,
+                opacity: 0.5,
+              }}
+            >
+              drag the mic • click to open / close
+            </p>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Floating mic button */}
+      <motion.div
+        animate={{ scale: dragging ? 0.9 : 1 }}
+        transition={{ duration: 0.1 }}
+        style={{
+          width: 60,
+          height: 60,
+          background: open
+            ? `linear-gradient(135deg,${T.accent},${ACCENT_DARK})`
+            : `#1d1d21ee`,
+          border: `1.5px solid ${open ? T.accent + "90" : T.border}`,
+          borderRadius: "50%",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          boxShadow: open
+            ? `0 0 32px ${T.accent}55, 0 8px 24px #00000060`
+            : "0 8px 32px #00000060",
+          position: "relative",
+          backdropFilter: "blur(12px)",
+        }}
+      >
+        {!open && (
+          <>
+            <div
+              className="pulse-ring"
+              style={{ borderColor: `${T.accent}50` }}
+            />
+            <div
+              className="pulse-ring"
+              style={{ borderColor: `${T.accent}25`, animationDelay: "0.8s" }}
+            />
+          </>
+        )}
+        <FaMicrophoneAlt
+          style={{
+            color: open ? "white" : T.accent,
+            fontSize: 20,
+            position: "relative",
+            zIndex: 1,
+          }}
+        />
+      </motion.div>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════════════════
    DASHBOARD  — with 3D falling meteors background
 ══════════════════════════════════════════════════════════════════════ */
 function Dashboard({ user, onLogout }) {
@@ -2054,7 +2433,7 @@ function Dashboard({ user, onLogout }) {
     <div
       style={{
         fontFamily: "'Space Grotesk',sans-serif",
-        background: T.bg,
+        background: "#1d1d21",
         minHeight: "100vh",
         position: "relative",
       }}
@@ -2069,7 +2448,8 @@ function Dashboard({ user, onLogout }) {
           inset: 0,
           zIndex: 1,
           pointerEvents: "none",
-          background: `radial-gradient(ellipse 100% 100% at 50% 50%, ${T.bg}00 0%, ${T.bg}55 60%, ${T.bg}CC 100%)`,
+          background:
+            "radial-gradient(ellipse 100% 100% at 50% 50%, transparent 0%, #1d1d2144 60%, #1d1d21BB 100%)",
         }}
       />
 
@@ -2085,47 +2465,53 @@ function Dashboard({ user, onLogout }) {
         }}
       />
 
-      {/* NAV */}
+      {/* NAV — floating pill matching landing page style */}
       <nav
         style={{
-          background: `${T.surface}D8`,
-          backdropFilter: "blur(20px)",
-          borderBottom: `1px solid ${T.border}`,
-          position: "sticky",
-          top: 0,
-          zIndex: 40,
+          position: "fixed",
+          top: 16,
+          left: "50%",
+          transform: "translateX(-50%)",
+          zIndex: 50,
+          width: "calc(100% - 48px)",
+          maxWidth: 1200,
+          background: `${T.surface}CC`,
+          backdropFilter: "blur(16px)",
+          WebkitBackdropFilter: "blur(16px)",
+          border: `1px solid ${T.border}80`,
+          borderRadius: 20,
+          transition: "all .4s",
         }}
       >
         <div
           style={{
-            maxWidth: 1200,
-            margin: "0 auto",
-            padding: "0 32px",
+            padding: "0 28px",
             height: 68,
             display: "flex",
             alignItems: "center",
             justifyContent: "space-between",
           }}
         >
+          {/* Logo */}
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
             <div
               style={{
-                width: 38,
-                height: 38,
+                width: 40,
+                height: 40,
                 background: `linear-gradient(135deg, ${T.accent}, ${ACCENT_DARK})`,
-                borderRadius: 11,
+                borderRadius: 12,
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
               }}
             >
-              <FaTooth style={{ color: "white", fontSize: 15 }} />
+              <FaTooth style={{ color: "white", fontSize: 16 }} />
             </div>
             <div>
               <p
                 style={{
                   fontFamily: "'Syne',sans-serif",
-                  fontSize: 17,
+                  fontSize: 18,
                   fontWeight: 800,
                   lineHeight: 1,
                   letterSpacing: "-0.5px",
@@ -2138,32 +2524,55 @@ function Dashboard({ user, onLogout }) {
                 style={{
                   color: T.accent,
                   fontSize: 9,
-                  letterSpacing: ".2em",
+                  letterSpacing: ".22em",
                   fontWeight: 600,
                   marginTop: 2,
                 }}
               >
-                DENTAL
+                DENTAL CLINIC
               </p>
             </div>
           </div>
+          {/* Nav links */}
+          <div style={{ display: "flex", alignItems: "center", gap: 32 }}>
+            {["Dashboard", "Specialists", "Appointments", "Settings"].map(
+              (l) => (
+                <a
+                  key={l}
+                  href="#"
+                  style={{
+                    color: T.muted,
+                    fontSize: 13,
+                    fontWeight: 500,
+                    textDecoration: "none",
+                    transition: "color .2s",
+                  }}
+                  onMouseEnter={(e) => (e.target.style.color = T.text)}
+                  onMouseLeave={(e) => (e.target.style.color = T.muted)}
+                >
+                  {l}
+                </a>
+              ),
+            )}
+          </div>
+          {/* User pill + sign out */}
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <div
               style={{
                 display: "flex",
                 alignItems: "center",
                 gap: 10,
-                background: T.card,
+                background: `${T.card}CC`,
                 border: `1px solid ${T.border}`,
-                borderRadius: 14,
-                padding: "8px 14px",
+                borderRadius: 12,
+                padding: "6px 12px",
               }}
             >
               <div
                 style={{
-                  width: 32,
-                  height: 32,
-                  borderRadius: 9,
+                  width: 30,
+                  height: 30,
+                  borderRadius: 8,
                   background:
                     role === "doctor"
                       ? `linear-gradient(135deg,#059669,#0D9488)`
@@ -2173,7 +2582,7 @@ function Dashboard({ user, onLogout }) {
                   justifyContent: "center",
                   color: "white",
                   fontWeight: 800,
-                  fontSize: 14,
+                  fontSize: 13,
                 }}
               >
                 {initial}
@@ -2183,7 +2592,7 @@ function Dashboard({ user, onLogout }) {
                   style={{
                     color: T.text,
                     fontWeight: 600,
-                    fontSize: 13,
+                    fontSize: 12,
                     lineHeight: 1,
                   }}
                 >
@@ -2192,8 +2601,8 @@ function Dashboard({ user, onLogout }) {
                 <p
                   style={{
                     color: role === "doctor" ? T.emerald : T.accent,
-                    fontSize: 10,
-                    marginTop: 3,
+                    fontSize: 9,
+                    marginTop: 2,
                     fontWeight: 600,
                     textTransform: "capitalize",
                   }}
@@ -2208,17 +2617,19 @@ function Dashboard({ user, onLogout }) {
               style={{
                 display: "flex",
                 alignItems: "center",
-                gap: 7,
-                padding: "9px 16px",
-                borderRadius: 12,
-                fontSize: 13,
+                gap: 6,
+                padding: "8px 16px",
+                borderRadius: 10,
+                fontSize: 12,
               }}
             >
-              <FaSignOutAlt /> Sign Out
+              <FaSignOutAlt style={{ fontSize: 11 }} /> Sign Out
             </button>
           </div>
         </div>
       </nav>
+      {/* Spacer so fixed nav doesn't overlap content */}
+      <div style={{ height: 84 }} />
 
       {/* CONTENT */}
       <div
@@ -2898,6 +3309,9 @@ function Dashboard({ user, onLogout }) {
             </div>
           )}
         </motion.div>
+
+        {/* ══ DRAGGABLE VOICE WIDGET ══ */}
+        <DraggableVoiceWidget />
       </div>
     </div>
   );

@@ -1,38 +1,38 @@
-require('dotenv').config();
-const express    = require('express');
-const http       = require('http');
-const socketIo   = require('socket.io');
-const cors       = require('cors');
-const mongoose   = require('mongoose');
-const jwt        = require('jsonwebtoken');
+require("dotenv").config();
+const express = require("express");
+const http = require("http");
+const socketIo = require("socket.io");
+const cors = require("cors");
+const mongoose = require("mongoose");
+const jwt = require("jsonwebtoken");
 
-const connectDB          = require('./config/database');
-const appointmentRoutes  = require('./routes/appointmentRoutes');
-const agentRoutes        = require('./routes/agentRoutes');
-const voiceAgentService  = require('./services/voiceAgentService');
-const sttService         = require('./services/sttService');
-const authRoutes         = require('./routes/Authroutes');
-const doctorRoutes       = require('./routes/Doctorroutes');
-const Patient            = require('./models/usermodel');
-const Doctor             = require('./models/doctor');
+const connectDB = require("./config/database");
+const appointmentRoutes = require("./routes/appointmentRoutes");
+const agentRoutes = require("./routes/agentRoutes");
+const voiceAgentService = require("./services/voiceAgentService");
+const sttService = require("./services/sttService");
+const authRoutes = require("./routes/Authroutes");
+const doctorRoutes = require("./routes/Doctorroutes");
+const Patient = require("./models/usermodel");
+const Doctor = require("./models/doctor");
 
-const app    = express();
+const app = express();
 const server = http.createServer(app);
 
 const corsOptions = {
-  origin:         process.env.CLIENT_URL || 'http://localhost:3000',
-  methods:        ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
-  credentials:    true,
-  allowedHeaders: ['Content-Type', 'Authorization'],
+  origin: process.env.CLIENT_URL || "http://localhost:3000",
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
+  credentials: true,
+  allowedHeaders: ["Content-Type", "Authorization"],
 };
 
 app.use(cors(corsOptions));
 
 const io = socketIo(server, {
-  cors:          corsOptions,
-  transports:    ['websocket', 'polling'],
-  pingTimeout:   60000,
-  pingInterval:  25000,
+  cors: corsOptions,
+  transports: ["websocket", "polling"],
+  pingTimeout: 60000,
+  pingInterval: 25000,
 });
 
 connectDB();
@@ -41,19 +41,20 @@ console.log("after");
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-app.use('/api/appointments', appointmentRoutes);
-app.use('/api/agent',        agentRoutes);
-app.use('/api/auth',         authRoutes);
-app.use('/api/doctors',      doctorRoutes);
+app.use("/api/appointments", appointmentRoutes);
+app.use("/api/agent", agentRoutes);
+app.use("/api/auth", authRoutes);
+app.use("/api/doctors", doctorRoutes);
 
-app.get('/health', (req, res) => {
+app.get("/health", (req, res) => {
   res.json({
-    status:            'OK',
-    timestamp:         new Date(),
+    status: "OK",
+    timestamp: new Date(),
     socketConnections: io.engine.clientsCount,
     services: {
-      deepgram: process.env.DEEPGRAM_API_KEY ? 'configured' : 'missing',
-      mongodb:  mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
+      deepgram: process.env.DEEPGRAM_API_KEY ? "configured" : "missing",
+      mongodb:
+        mongoose.connection.readyState === 1 ? "connected" : "disconnected",
     },
   });
 });
@@ -63,23 +64,26 @@ app.get('/health', (req, res) => {
 ================================ */
 async function resolvePatientFromSocket(socket) {
   try {
-    const raw = socket.handshake.auth?.token || socket.handshake.headers?.authorization;
+    const raw =
+      socket.handshake.auth?.token || socket.handshake.headers?.authorization;
     if (!raw) return null;
-    const token   = raw.replace(/^Bearer\s+/i, '').trim();
+    const token = raw.replace(/^Bearer\s+/i, "").trim();
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     let user;
-    if (decoded.role === 'doctor') {
-      user = await Doctor.findById(decoded.id).select('-password');
+    if (decoded.role === "doctor") {
+      user = await Doctor.findById(decoded.id).select("-password");
     } else {
-      user = await Patient.findById(decoded.id).select('-password');
+      user = await Patient.findById(decoded.id).select("-password");
     }
     if (!user) return null;
-    console.log(`🔐 Authenticated socket user: ${user.name} <${user.email}> [${decoded.role}]`);
+    console.log(
+      `🔐 Authenticated socket user: ${user.name} <${user.email}> [${decoded.role}]`,
+    );
     return {
-      name:  user.name  || null,
+      name: user.name || null,
       email: user.email || null,
       phone: user.phone || user.patientPhone || null,
-      role:  decoded.role,
+      role: decoded.role,
     };
   } catch (err) {
     console.warn(`⚠️  Socket JWT decode failed: ${err.message}`);
@@ -91,14 +95,17 @@ async function resolvePatientFromSocket(socket) {
    RECONNECT CONFIG
 ================================ */
 const RECONNECT_BASE_DELAY_MS = 1000;
-const RECONNECT_MAX_DELAY_MS  = 30000;
-const RECONNECT_MAX_ATTEMPTS  = 5;
+const RECONNECT_MAX_DELAY_MS = 30000;
+const RECONNECT_MAX_ATTEMPTS = 5;
 
-const isPermanentError = (message = '') => {
+const isPermanentError = (message = "") => {
   const msg = message.toLowerCase();
   return (
-    msg.includes('400') || msg.includes('401') || msg.includes('403') ||
-    msg.includes('invalid api key') || msg.includes('unauthorized')
+    msg.includes("400") ||
+    msg.includes("401") ||
+    msg.includes("403") ||
+    msg.includes("invalid api key") ||
+    msg.includes("unauthorized")
   );
 };
 
@@ -107,25 +114,25 @@ const isPermanentError = (message = '') => {
 ================================ */
 console.log("srever ");
 
-io.on('connection', async (socket) => {
+io.on("connection", async (socket) => {
   console.log(`✅ Client connected: ${socket.id}`);
 
-  let patientContext     = await resolvePatientFromSocket(socket);
-  let conversationId     = null;
+  let patientContext = await resolvePatientFromSocket(socket);
+  let conversationId = null;
   let deepgramConnection = null;
-  let isDeepgramOpen     = false;
-  let isCallActive       = false;
-  let isSarahSpeaking    = false;
-  let sessionSampleRate  = 16000;
-  let audioQueue         = [];
+  let isDeepgramOpen = false;
+  let isCallActive = false;
+  let isSarahSpeaking = false;
+  let sessionSampleRate = 16000;
+  let audioQueue = [];
   let readyCheckInterval = null;
-  let reconnectAttempts  = 0;
-  let reconnectTimer     = null;
+  let reconnectAttempts = 0;
+  let reconnectTimer = null;
 
   // ── FIX 1: keepAlive runs for the ENTIRE call, not just while Sarah speaks.
   // Deepgram 1011 fires when NO data arrives for ~10s — this happens during
   // TTS playback. Sending KeepAlive every 8s prevents it unconditionally.
-  let keepAliveInterval  = null;
+  let keepAliveInterval = null;
 
   const startKeepAlive = () => {
     if (keepAliveInterval) return; // already running
@@ -137,35 +144,53 @@ io.on('connection', async (socket) => {
   };
 
   const stopKeepAlive = () => {
-    if (keepAliveInterval) { clearInterval(keepAliveInterval); keepAliveInterval = null; }
+    if (keepAliveInterval) {
+      clearInterval(keepAliveInterval);
+      keepAliveInterval = null;
+    }
   };
 
   // Emit personalised greeting immediately on connect
   const greeting = patientContext?.name
     ? `Hello ${patientContext.name}! Welcome back to SmileCare Dental. I'm Sarah. How can I help you today?`
     : `Hello! Welcome to SmileCare Dental. I'm Sarah, your virtual assistant. How can I help you today?`;
-  socket.emit('assistant-response', { text: greeting, isFinal: true, timestamp: new Date() });
+  socket.emit("assistant-response", {
+    text: greeting,
+    isFinal: true,
+    timestamp: new Date(),
+  });
 
   /* ----------------------------
      Helpers
   ---------------------------- */
   const toBuffer = (data) => {
-    if (Buffer.isBuffer(data))       return data;
+    if (Buffer.isBuffer(data)) return data;
     if (data instanceof ArrayBuffer) return Buffer.from(data);
-    if (data?.buffer)                return Buffer.from(data.buffer, data.byteOffset, data.byteLength);
+    if (data?.buffer)
+      return Buffer.from(data.buffer, data.byteOffset, data.byteLength);
     return Buffer.from(data);
   };
 
   const flushQueue = () => {
     if (!audioQueue.length) return;
     console.log(`📤 Flushing ${audioQueue.length} audio chunks`);
-    audioQueue.forEach(chunk => { try { deepgramConnection.send(chunk); } catch {} });
+    audioQueue.forEach((chunk) => {
+      try {
+        deepgramConnection.send(chunk);
+      } catch {}
+    });
     audioQueue = [];
   };
 
   const clearTimers = () => {
-    if (readyCheckInterval) { clearInterval(readyCheckInterval); readyCheckInterval = null; }
-    if (reconnectTimer)     { clearTimeout(reconnectTimer);      reconnectTimer     = null; }
+    if (readyCheckInterval) {
+      clearInterval(readyCheckInterval);
+      readyCheckInterval = null;
+    }
+    if (reconnectTimer) {
+      clearTimeout(reconnectTimer);
+      reconnectTimer = null;
+    }
     // NOTE: keepAlive is NOT cleared here — it stays alive for the whole call
   };
 
@@ -173,9 +198,11 @@ io.on('connection', async (socket) => {
     clearTimers();
     stopKeepAlive(); // only stop keepAlive when the session fully ends
     isDeepgramOpen = false;
-    audioQueue     = [];
+    audioQueue = [];
     if (deepgramConnection) {
-      try { sttService.closeConnection(deepgramConnection); } catch {}
+      try {
+        sttService.closeConnection(deepgramConnection);
+      } catch {}
       deepgramConnection = null;
     }
   };
@@ -188,18 +215,22 @@ io.on('connection', async (socket) => {
     if (!isCallActive) return;
 
     if (!process.env.DEEPGRAM_API_KEY) {
-      console.error('❌ DEEPGRAM_API_KEY is not set');
-      socket.emit('error', { message: 'Deepgram API key is missing.' });
+      console.error("❌ DEEPGRAM_API_KEY is not set");
+      socket.emit("error", { message: "Deepgram API key is missing." });
       isCallActive = false;
       return;
     }
 
     if (deepgramConnection) {
-      try { sttService.closeConnection(deepgramConnection); } catch {}
+      try {
+        sttService.closeConnection(deepgramConnection);
+      } catch {}
       deepgramConnection = null;
     }
 
-    console.log(`🔊 Opening Deepgram @ ${sessionSampleRate}Hz (attempt ${reconnectAttempts + 1}/${RECONNECT_MAX_ATTEMPTS})`);
+    console.log(
+      `🔊 Opening Deepgram @ ${sessionSampleRate}Hz (attempt ${reconnectAttempts + 1}/${RECONNECT_MAX_ATTEMPTS})`,
+    );
 
     deepgramConnection = sttService.createLiveConnection(
       sessionSampleRate,
@@ -209,21 +240,21 @@ io.on('connection', async (socket) => {
         // FIX 2: Don't silently swallow transcripts while Sarah speaks.
         // Just skip sending to AI — still reset reconnect counter.
         reconnectAttempts = 0;
-        socket.emit('transcript', transcriptData);
+        socket.emit("transcript", transcriptData);
 
-        if (isSarahSpeaking) return; // gate AI only, not reconnect counter
+        if (isSarahSpeaking) return; // gate AI while Sarah speaks
         if (!transcriptData.isFinal || !transcriptData.text.trim()) return;
 
         try {
-          socket.emit('typing', true);
+          socket.emit("typing", true);
           const response = await voiceAgentService.processUserInput(
             transcriptData.text,
             conversationId,
-            patientContext
+            patientContext,
           );
 
           if (!response.text || response.suppressed) {
-            socket.emit('typing', false);
+            socket.emit("typing", false);
             return;
           }
 
@@ -231,30 +262,29 @@ io.on('connection', async (socket) => {
             conversationId = response.conversationId;
           }
 
-          socket.emit('typing', false);
-          socket.emit('assistant-response', {
-            text:           response.text,
+          socket.emit("typing", false);
+          socket.emit("assistant-response", {
+            text: response.text,
             conversationId: response.conversationId,
-            isFinal:        true,
-            timestamp:      new Date(),
+            isFinal: true,
+            timestamp: new Date(),
           });
           console.log(`🤖 Sarah: ${response.text}`);
-
         } catch (err) {
-          console.error('AI error:', err);
-          socket.emit('typing', false);
-          socket.emit('error', { message: 'AI processing failed' });
+          console.error("AI error:", err);
+          socket.emit("typing", false);
+          socket.emit("error", { message: "AI processing failed" });
         }
       },
 
       /* onError */
       (err) => {
         const msg = err?.message || String(err);
-        console.error('❌ Deepgram WS error:', msg);
+        console.error("❌ Deepgram WS error:", msg);
         isDeepgramOpen = false;
         if (isPermanentError(msg)) {
-          console.error('🚫 Permanent Deepgram error — stopping reconnects.');
-          socket.emit('error', { message: `Deepgram error: ${msg}` });
+          console.error("🚫 Permanent Deepgram error — stopping reconnects.");
+          socket.emit("error", { message: `Deepgram error: ${msg}` });
           isCallActive = false;
         }
       },
@@ -262,7 +292,7 @@ io.on('connection', async (socket) => {
       /* onClose */
       (code, reason) => {
         console.log(`🔌 Deepgram closed — code: ${code}, reason: ${reason}`);
-        isDeepgramOpen     = false;
+        isDeepgramOpen = false;
         deepgramConnection = null;
 
         // FIX 3: On reconnect, keepAlive keeps running so the NEW connection
@@ -275,22 +305,28 @@ io.on('connection', async (socket) => {
 
         reconnectAttempts++;
         if (reconnectAttempts > RECONNECT_MAX_ATTEMPTS) {
-          console.error(`🚫 Deepgram failed after ${RECONNECT_MAX_ATTEMPTS} attempts — giving up.`);
-          socket.emit('error', { message: `Could not connect to Deepgram after ${RECONNECT_MAX_ATTEMPTS} attempts.` });
+          console.error(
+            `🚫 Deepgram failed after ${RECONNECT_MAX_ATTEMPTS} attempts — giving up.`,
+          );
+          socket.emit("error", {
+            message: `Could not connect to Deepgram after ${RECONNECT_MAX_ATTEMPTS} attempts.`,
+          });
           isCallActive = false;
           return;
         }
 
         const delay = Math.min(
           RECONNECT_BASE_DELAY_MS * Math.pow(2, reconnectAttempts - 1),
-          RECONNECT_MAX_DELAY_MS
+          RECONNECT_MAX_DELAY_MS,
         );
-        console.log(`🔄 Reconnecting Deepgram in ${delay}ms (attempt ${reconnectAttempts}/${RECONNECT_MAX_ATTEMPTS})…`);
+        console.log(
+          `🔄 Reconnecting Deepgram in ${delay}ms (attempt ${reconnectAttempts}/${RECONNECT_MAX_ATTEMPTS})…`,
+        );
         reconnectTimer = setTimeout(() => {
           reconnectTimer = null;
           if (isCallActive) openDeepgramConnection();
         }, delay);
-      }
+      },
     );
 
     /* Wait for ready then start keepAlive */
@@ -298,19 +334,22 @@ io.on('connection', async (socket) => {
     readyCheckInterval = setInterval(() => {
       elapsed += 50;
       if (deepgramConnection?.readyState === 1) {
-        isDeepgramOpen    = true;
+        isDeepgramOpen = true;
         reconnectAttempts = 0;
         clearInterval(readyCheckInterval);
         readyCheckInterval = null;
         flushQueue();
         startKeepAlive(); // FIX 1: start unconditional keepAlive on open
-        socket.emit('session-started', { status: 'ready', sampleRate: sessionSampleRate });
+        socket.emit("session-started", {
+          status: "ready",
+          sampleRate: sessionSampleRate,
+        });
         console.log(`✅ Deepgram ready (${elapsed}ms)`);
       }
       if (elapsed > 5000) {
         clearInterval(readyCheckInterval);
         readyCheckInterval = null;
-        console.warn('⚠️ Deepgram readyState timeout');
+        console.warn("⚠️ Deepgram readyState timeout");
       }
     }, 50);
   };
@@ -318,34 +357,39 @@ io.on('connection', async (socket) => {
   /* ----------------------------
      Start Voice Session
   ---------------------------- */
-  socket.on('start-voice-session', async (options = {}) => {
+  socket.on("start-voice-session", async (options = {}) => {
     sessionSampleRate = options.sampleRate || 16000;
-    isCallActive      = true;
-    isSarahSpeaking   = false;
+    isCallActive = true;
+    isSarahSpeaking = false;
     reconnectAttempts = 0;
 
     if (!patientContext && options.authToken) {
       try {
-        const token   = options.authToken.replace(/^Bearer\s+/i, '').trim();
+        const token = options.authToken.replace(/^Bearer\s+/i, "").trim();
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
-        const user    = decoded.role === 'doctor'
-          ? await Doctor.findById(decoded.id).select('-password')
-          : await Patient.findById(decoded.id).select('-password');
+        const user =
+          decoded.role === "doctor"
+            ? await Doctor.findById(decoded.id).select("-password")
+            : await Patient.findById(decoded.id).select("-password");
         if (user) {
           patientContext = {
-            name:  user.name  || null,
+            name: user.name || null,
             email: user.email || null,
             phone: user.phone || user.patientPhone || null,
-            role:  decoded.role,
+            role: decoded.role,
           };
-          console.log(`🔐 Late-auth user: ${patientContext.name} <${patientContext.email}>`);
+          console.log(
+            `🔐 Late-auth user: ${patientContext.name} <${patientContext.email}>`,
+          );
         }
       } catch (e) {
-        console.warn('⚠️  start-voice-session token decode failed:', e.message);
+        console.warn("⚠️  start-voice-session token decode failed:", e.message);
       }
     }
 
-    console.log(`🎤 Voice session started${patientContext ? ` for ${patientContext.name}` : ' (guest)'}`);
+    console.log(
+      `🎤 Voice session started${patientContext ? ` for ${patientContext.name}` : " (guest)"}`,
+    );
     openDeepgramConnection();
 
     // FIX 4: Don't re-emit greeting on start-voice-session — it was already
@@ -355,14 +399,14 @@ io.on('connection', async (socket) => {
   /* ----------------------------
      Patient Details & Location
   ---------------------------- */
-  socket.on('patient-details', ({ name, email }) => {
+  socket.on("patient-details", ({ name, email }) => {
     patientContext = patientContext
       ? { ...patientContext, name, email }
       : { name, email };
     console.log(`👤 Patient details updated: ${name}, ${email}`);
   });
 
-  socket.on('patient-location', ({ lat, lng }) => {
+  socket.on("patient-location", ({ lat, lng }) => {
     patientContext = patientContext
       ? { ...patientContext, lat, lng }
       : { lat, lng };
@@ -372,7 +416,7 @@ io.on('connection', async (socket) => {
   /* ----------------------------
      Audio Streaming
   ---------------------------- */
-  socket.on('audio-chunk', (rawChunk) => {
+  socket.on("audio-chunk", (rawChunk) => {
     if (!isCallActive || isSarahSpeaking) return;
     const buffer = toBuffer(rawChunk);
     if (!buffer?.length) return;
@@ -384,7 +428,7 @@ io.on('connection', async (socket) => {
         if (audioQueue.length > 200) audioQueue.shift();
       }
     } catch (err) {
-      console.error('audio send error:', err);
+      console.error("audio send error:", err);
     }
   });
 
@@ -393,13 +437,13 @@ io.on('connection', async (socket) => {
      FIX 1: keepAlive now runs for the ENTIRE call.
      sarah-speaking only controls the mic gate and audio queue.
   ---------------------------- */
-  socket.on('sarah-speaking', (speaking) => {
+  socket.on("sarah-speaking", (speaking) => {
     isSarahSpeaking = speaking;
     if (speaking) {
-      console.log('🔇 Sarah speaking - mic gate closed');
+      console.log("🔇 Sarah speaking - mic gate closed");
       audioQueue = []; // discard any mic audio buffered before gate closed
     } else {
-      console.log('🎙️ Sarah finished speaking');
+      console.log("🎙️ Sarah finished speaking");
     }
     // keepAlive intentionally NOT touched here — it runs throughout the call
   });
@@ -407,10 +451,10 @@ io.on('connection', async (socket) => {
   /* ----------------------------
      Stop Voice Session
   ---------------------------- */
-  socket.on('stop-voice-session', () => {
-    console.log('🛑 Voice session stopped');
-    isCallActive      = false;
-    isSarahSpeaking   = false;
+  socket.on("stop-voice-session", () => {
+    console.log("🛑 Voice session stopped");
+    isCallActive = false;
+    isSarahSpeaking = false;
     reconnectAttempts = 0;
     closeDeepgram(); // this calls stopKeepAlive()
   });
@@ -418,10 +462,10 @@ io.on('connection', async (socket) => {
   /* ----------------------------
      Disconnect
   ---------------------------- */
-  socket.on('disconnect', (reason) => {
+  socket.on("disconnect", (reason) => {
     console.log(`❌ Client disconnected: ${reason}`);
-    isCallActive      = false;
-    isSarahSpeaking   = false;
+    isCallActive = false;
+    isSarahSpeaking = false;
     reconnectAttempts = 0;
     closeDeepgram();
     conversationId = null;
@@ -433,11 +477,11 @@ io.on('connection', async (socket) => {
 ================================ */
 app.use((err, req, res, next) => {
   console.error(err);
-  res.status(500).json({ success: false, error: 'Server error' });
+  res.status(500).json({ success: false, error: "Server error" });
 });
 
 app.use((req, res) =>
-  res.status(404).json({ success: false, error: 'Route not found' })
+  res.status(404).json({ success: false, error: "Route not found" }),
 );
 
 /* ===============================
@@ -451,7 +495,7 @@ server.listen(PORT, () => {
 ║  🦷 SmileCare Voice Server       ║
 ╠══════════════════════════════════╣
 ║  http://localhost:${PORT}         ║
-║  Deepgram: ${process.env.DEEPGRAM_API_KEY ? '✅' : '❌ MISSING KEY'}            ║
+║  Deepgram: ${process.env.DEEPGRAM_API_KEY ? "✅" : "❌ MISSING KEY"}            ║
 ╚══════════════════════════════════╝
 `);
 });
@@ -463,7 +507,7 @@ const shutdown = (sig) => {
   });
 };
 
-process.on('SIGTERM', () => shutdown('SIGTERM'));
-process.on('SIGINT',  () => shutdown('SIGINT'));
+process.on("SIGTERM", () => shutdown("SIGTERM"));
+process.on("SIGINT", () => shutdown("SIGINT"));
 
 module.exports = { app, server, io };
